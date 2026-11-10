@@ -1,6 +1,12 @@
 import { ENCRYPTED_FUNCTION_OUTPUT_REJECTION, upstreamErrorMessageFromPayload } from "../../lib/errors";
 import { readBoundedResponseBody } from "../../lib/bounded-body";
-import { isReasoningEffortRejection } from "../../providers/reasoning-metadata";
+import { isHardPolicyOrOriginRefusal } from "../../lib/hard-refusal";
+import { isPlainObject } from "../../lib/plain-data";
+import {
+  hasConflictingReasoningEffortCode,
+  isReasoningEffortRejection,
+  planReasoningEffortDowngrade,
+} from "../../providers/reasoning-metadata";
 import { isAnthropicFastRefusal } from "../../providers/anthropic-fast";
 import type { AdapterRequest } from "../../adapters/base";
 import { isNonReplayableResponse } from "../../lib/upstream-retry";
@@ -62,6 +68,37 @@ export function outboundResponsesInput(bodyText: string | undefined): unknown[] 
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The next published rung after an upstream reasoning-effort refusal, or undefined when no replay
+ * applies. A direct request repairs once. A combo candidate may walk the finite ladder one refused
+ * rung at a time: each refusal is learned, so a rung is never offered twice, and the request send
+ * budget bounds the walk (#8173). The caller sets `guard.attempted` when it actually replays.
+ */
+export async function refusedReasoningEffortDowngrade(
+  response: Response,
+  signal: AbortSignal,
+  guard: { attempted: boolean },
+  comboAttempt: boolean | undefined,
+  plan: Omit<Parameters<typeof planReasoningEffortDowngrade>[0], "rejectionText">,
+): Promise<ReturnType<typeof planReasoningEffortDowngrade>> {
+  if (guard.attempted && !comboAttempt) return undefined;
+  const rejectionText = await reasoningEffortRejectionText(response, false, signal);
+  return rejectionText === undefined
+    ? undefined
+    : planReasoningEffortDowngrade({ ...plan, rejectionText });
+}
+
+/**
+ * The passthrough rebuild serializes `_rawBody`, so a downgraded rung has to be written there as
+ * well or the replay resends the refused effort. `reasoning_effort` is kept in step only when the
+ * caller sent it.
+ */
+export function withRawBodyReasoningEffort(rawBody: unknown, effort: string): unknown {
+  if (!isPlainObject(rawBody)) return rawBody;
+  const reasoning = isPlainObject(rawBody.reasoning) ? { ...rawBody.reasoning, effort } : { effort };
+  return { ...rawBody, reasoning, ...("reasoning_effort" in rawBody ? { reasoning_effort: effort } : {}) };
 }
 
 
@@ -365,7 +402,7 @@ export async function reasoningEffortRejectionText(
   if (response.status !== 400 && response.status !== 403) return undefined;
   try {
     const body = await readBoundedResponseBody(response.clone(), { signal });
-    if (!body.displaySafe || body.truncated) return undefined;
+    if (!body.displaySafe || body.truncated || isHardPolicyOrOriginRefusal(body.text) || hasConflictingReasoningEffortCode(body.text)) return undefined;
     return isReasoningEffortRejection(body.text) ? body.text : undefined;
   } catch {
     return undefined;

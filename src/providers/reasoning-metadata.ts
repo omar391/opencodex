@@ -26,6 +26,12 @@ import { join } from "node:path";
 // and leaves COMBO_NAMESPACE in its temporal dead zone for entry points that start at combos/types.ts.
 import { atomicWriteFile } from "../config/atomic-write";
 import { getConfigDir, withConfigDirHardeningSettled } from "../config/paths";
+import {
+  extractJsonEnvelope,
+  extractJsonEnvelopeWithContext,
+  isHardPolicyOrOriginRefusal,
+} from "../lib/hard-refusal";
+export { extractJsonEnvelope, extractJsonEnvelopeWithContext, isHardPolicyOrOriginRefusal };
 import type { OcxProviderConfig } from "../types";
 import { resolveProviderApiKey } from "./api-key-resolve";
 
@@ -445,27 +451,861 @@ const REJECTION_WINDOW = 48;
  */
 const GENERIC_ERROR_TYPE = /invalid_request_error/gi;
 
-/**
- * Evidence test for a rejection body: does it blame reasoning effort?
- *
- * The parameter name on its own is not evidence. A 400 that refuses `max_tokens` may still
- * echo the whole request body back, `reasoning_effort` included, and treating that as a
- * refusal spends this request's one downgrade replay on a rung the upstream never objected to
- * — and persists a false refusal that clamps every later turn for thirty days.
- */
-export function isReasoningEffortRejection(text: string | undefined): boolean {
+const EFFORT_COMPATIBLE_CODES = new Set([
+  "",
+  "invalid_request_error",
+  "invalid_argument",
+  "unsupported_parameter",
+  "unsupported_value",
+  "invalid_parameter_error",
+]);
+const EFFORT_COMPATIBLE_TYPES = new Set([
+  "",
+  "invalid_request_error",
+  "upstream_error",
+]);
+
+function isIncompleteStructuredWrapper(text: string): boolean {
+  let s = text.trim();
+  for (let d = 0; d < 3; d += 1) {
+    if (s.startsWith("Provider error 400: ")) {
+      s = s.slice("Provider error 400: ".length).trim();
+    } else if (s.startsWith("Provider error: ")) {
+      s = s.slice("Provider error: ".length).trim();
+    } else if (s.startsWith("Gateway error 400: ")) {
+      s = s.slice("Gateway error 400: ".length).trim();
+    } else if (s.startsWith("Gateway error: ")) {
+      s = s.slice("Gateway error: ".length).trim();
+    }
+    if (s.startsWith("data:") && !s.includes("\n")) {
+      s = s.slice("data:".length).trim();
+    }
+  }
+  if (s.startsWith("{") || s.startsWith("[")) {
+    try {
+      JSON.parse(s);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+  if (/^(?:(?:Provider|Gateway) error (?:400:\s*)?|data:\s*)[{\[]/i.test(text.trim())) {
+    return true;
+  }
+  const firstBrace = s.indexOf("{");
+  const lastBrace = s.lastIndexOf("}");
+  if (firstBrace !== -1) {
+    let openBraces = 0;
+    let inString = false;
+    let escape = false;
+    for (let i = 0; i < s.length; i += 1) {
+      const ch = s[i];
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (!inString) {
+        if (ch === "{") openBraces += 1;
+        else if (ch === "}") openBraces -= 1;
+      }
+    }
+    if (openBraces !== 0) return true;
+    if (lastBrace > firstBrace && s.slice(firstBrace, lastBrace + 1).includes(":")) {
+      try {
+        JSON.parse(s.slice(firstBrace, lastBrace + 1));
+      } catch {
+        return true;
+      }
+    }
+  }
+  const firstBracket = s.indexOf("[");
+  const lastBracket = s.lastIndexOf("]");
+  if (firstBracket !== -1) {
+    let openBrackets = 0;
+    let inString = false;
+    let escape = false;
+    for (let i = 0; i < s.length; i += 1) {
+      const ch = s[i];
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (!inString) {
+        if (ch === "[") openBrackets += 1;
+        else if (ch === "]") openBrackets -= 1;
+      }
+    }
+    if (openBrackets !== 0) return true;
+    const bracketSlice = s.slice(firstBracket, lastBracket + 1);
+    if (
+      lastBracket > firstBracket &&
+      (bracketSlice.includes('"') || bracketSlice.includes("'") || bracketSlice.includes(":") || bracketSlice.includes(","))
+    ) {
+      try {
+        JSON.parse(bracketSlice);
+      } catch {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+const EFFORT_PARAM_NAMES = new Set([
+  "reasoning_effort",
+  "reasoning.effort",
+  "reasoning",
+  "reasoning_parameters",
+  "effort",
+]);
+
+function cleanParam(str: string): string {
+  return str.trim().toLowerCase().replaceAll("-", "_").replace(/[^a-z0-9_]+$/gi, "").replace(/^[^a-z0-9_]+/gi, "");
+}
+
+const KNOWN_NON_EFFORT_PARAMS = new Set([
+  "temperature",
+  "top_p",
+  "top_k",
+  "max_tokens",
+  "max_completion_tokens",
+  "max_output_tokens",
+  "min_tokens",
+  "stop",
+  "stop_sequences",
+  "presence_penalty",
+  "frequency_penalty",
+  "repetition_penalty",
+  "logit_bias",
+  "logprobs",
+  "top_logprobs",
+  "seed",
+  "tools",
+  "tool_choice",
+  "functions",
+  "function_call",
+  "response_format",
+  "stream",
+  "stream_options",
+  "user",
+  "service_tier",
+  "modalities",
+  "prediction",
+  "parallel_tool_calls",
+  "messages",
+  "prompt",
+  "n",
+  "best_of",
+]);
+
+const GENERIC_PARAM_WORDS = new Set([
+  "request",
+  "requests",
+  "argument",
+  "arguments",
+  "parameter",
+  "parameters",
+  "param",
+  "params",
+  "payload",
+  "body",
+  "input",
+  "inputs",
+  "json",
+  "format",
+  "data",
+  "content",
+  "value",
+  "values",
+  "field",
+  "fields",
+  "call",
+  "type",
+  "error",
+  "message",
+  "model",
+  "url",
+  "header",
+  "headers",
+  "auth",
+  "api",
+  "key",
+  "token",
+  "status",
+  "code",
+  "response",
+  "gateway",
+  "provider",
+  "invalid",
+  "unsupported",
+  "unknown",
+  "unrecognized",
+  "unexpected",
+  "unallowed",
+  "it",
+  "this",
+  "that",
+  "these",
+  "those",
+  "which",
+  "what",
+  "all",
+  "each",
+  "every",
+  "both",
+  "either",
+  "neither",
+  "one",
+  "they",
+  "there",
+  "here",
+  "string",
+  "number",
+  "boolean",
+  "integer",
+  "array",
+  "object",
+  "null",
+  "none",
+]);
+
+const EFFORT_RUNGS = new Set([
+  "none",
+  "low",
+  "medium",
+  "high",
+  "max",
+  "xhigh",
+  "ultra",
+  "minimal",
+  "standard",
+  "default",
+]);
+
+const STRUCTURAL_EFFORT_WORDS = new Set([
+  "level",
+  "mode",
+  "rung",
+  "rungs",
+]);
+
+const SUBJECT_FOLLOWING_VERBS = new Set([
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "has",
+  "have",
+  "had",
+  "does",
+  "do",
+  "did",
+  "cannot",
+  "cant",
+  "can",
+  "could",
+  "will",
+  "would",
+  "shall",
+  "should",
+  "may",
+  "might",
+  "must",
+]);
+
+const REASONING_EFFORT_CONTEXT_REGEX = /\b(?:reasoning[._\s]+effort|reasoning[._\s]+parameters|reasoning|effort)\b/i;
+
+function isExplicitFieldOrParameter(text: string, matchIndex: number, param: string): boolean {
+  if (SUBJECT_FOLLOWING_VERBS.has(param)) return false;
+  const pre = text.slice(Math.max(0, matchIndex - 48), matchIndex);
+  if (
+    /\b(?:reasoning[._\s]+effort|reasoning[._\s]+parameters|reasoning|effort)\s+(?:parameter|param|argument|arg|field|property)\s*(?:[:=]\s*['"`]?|['"`]|\s+)\s*$/i.test(
+      pre
+    )
+  ) {
+    return false;
+  }
+  if (/\b(?:parameter|param|argument|arg|field|property)\s*(?:[:=]\s*['"`]?|['"`]|\s+)\s*$/i.test(pre)) return true;
+  const post = text.slice(matchIndex + param.length, Math.min(text.length, matchIndex + param.length + 32));
+  if (/^\s*['"`]?\s+(?:parameter|param|argument|arg|field|property)\b/i.test(post)) return true;
+  return false;
+}
+
+function isEffortDescriptorInContext(text: string, matchIndex: number, param: string): boolean {
+  if (isExplicitFieldOrParameter(text, matchIndex, param)) return false;
+  if (EFFORT_RUNGS.has(param)) {
+    return REASONING_EFFORT_CONTEXT_REGEX.test(text);
+  }
+  if (STRUCTURAL_EFFORT_WORDS.has(param)) {
+    const preText = text.slice(Math.max(0, matchIndex - 32), matchIndex);
+    return /(?:reasoning[._\s]+effort|reasoning|effort)\s*[:=]?\s*['"`]?$/i.test(preText);
+  }
+  return false;
+}
+
+function tokenStartIndex(m: RegExpExecArray, rawToken: string, isPrefixToken: boolean): number {
+  const offset = isPrefixToken ? m[0].indexOf(rawToken) : m[0].lastIndexOf(rawToken);
+  return offset >= 0 ? m.index + offset : m.index;
+}
+
+function isCompetingParameterToken(text: string, tokenIndex: number, rawToken: string): boolean {
+  const p = cleanParam(rawToken);
+  if (!p || EFFORT_PARAM_NAMES.has(p) || SUBJECT_FOLLOWING_VERBS.has(p)) return false;
+  if (isExplicitFieldOrParameter(text, tokenIndex, p)) return true;
+  if (GENERIC_PARAM_WORDS.has(p)) return false;
+  if (isEffortDescriptorInContext(text, tokenIndex, p)) return false;
+  return true;
+}
+
+function diagnosticTextNamesOtherParameter(text: string): boolean {
   if (!text) return false;
+  const s = text.replace(GENERIC_ERROR_TYPE, " ");
+
+  const paramPattern = /\b(?:parameter|param|argument|arg|field|property)\s*(?:[:=]\s*['"`]?|['"`]|\s+)['"`]?([a-zA-Z0-9_\-\.]+)['"`]?/gi;
+  for (let m = paramPattern.exec(s); m; m = paramPattern.exec(s)) {
+    const tokenIndex = tokenStartIndex(m, m[1], false);
+    if (isCompetingParameterToken(s, tokenIndex, m[1])) return true;
+  }
+
+  const prefixParamPattern = /\b['"`]?([a-zA-Z0-9_\-\.]+)['"`]?\s+(?:parameter|param|argument|arg|field|property)\b/gi;
+  for (let m = prefixParamPattern.exec(s); m; m = prefixParamPattern.exec(s)) {
+    const tokenIndex = tokenStartIndex(m, m[1], true);
+    if (isCompetingParameterToken(s, tokenIndex, m[1])) return true;
+  }
+
+  const subjectMustBe = /\b['"`]?([a-zA-Z0-9_\-\.]+)['"`]?\s+must\s+be\b/gi;
+  for (let m = subjectMustBe.exec(s); m; m = subjectMustBe.exec(s)) {
+    const tokenIndex = tokenStartIndex(m, m[1], true);
+    if (isCompetingParameterToken(s, tokenIndex, m[1])) return true;
+  }
+
+  const subjectIsRejection =
+    /\b['"`]?([a-zA-Z0-9_\-\.]+)['"`]?\s+(?:is|are)\s+(?:invalid|unsupported|unrecognized|unknown|not\s+allowed|not\s+permitted|not\s+supported|required|missing)\b/gi;
+  for (let m = subjectIsRejection.exec(s); m; m = subjectIsRejection.exec(s)) {
+    const tokenIndex = tokenStartIndex(m, m[1], true);
+    if (isCompetingParameterToken(s, tokenIndex, m[1])) return true;
+  }
+
+  const subjectColon =
+    /\b['"`]?([a-zA-Z0-9_\-\.]+)['"`]?\s*:\s*(?:must\s+be|invalid|unsupported|unrecognized|unknown|expected|required|missing|not\s+allowed)\b/gi;
+  for (let m = subjectColon.exec(s); m; m = subjectColon.exec(s)) {
+    const tokenIndex = tokenStartIndex(m, m[1], true);
+    if (isCompetingParameterToken(s, tokenIndex, m[1])) return true;
+  }
+
+  const rejectionExtra =
+    /\b(?:unexpected|missing|cannot\s+(?:specify|use|set|pass|provide))\s+(?:field|param|parameter|argument|property)?\s*['"`]?([a-zA-Z0-9_\-\.]+)['"`]?/gi;
+  for (let m = rejectionExtra.exec(s); m; m = rejectionExtra.exec(s)) {
+    const tokenIndex = tokenStartIndex(m, m[1], false);
+    if (isCompetingParameterToken(s, tokenIndex, m[1])) return true;
+  }
+
+  const nonEffortTerm = /\b(?:temperature|top_p|top_k|max_tokens|max_completion_tokens|max_output_tokens|min_tokens|stop|stop_sequences|presence_penalty|frequency_penalty|repetition_penalty|logit_bias|logprobs|top_logprobs|seed|tools|tool_choice|functions|function_call|response_format|stream|stream_options|user|service_tier|modalities|prediction|parallel_tool_calls|messages|prompt)\b/gi;
+  for (let m = nonEffortTerm.exec(s); m; m = nonEffortTerm.exec(s)) {
+    const from = Math.max(0, m.index - REJECTION_WINDOW);
+    const to = Math.min(s.length, m.index + m[0].length + REJECTION_WINDOW);
+    if (REJECTION_LANGUAGE.test(s.slice(from, to))) return true;
+  }
+
+  const rejectionDirect = /\b(?:invalid|unsupported|unrecognized|unknown)\s+['"`]?([a-zA-Z0-9_\-\.]+)['"`]?/gi;
+  for (let m = rejectionDirect.exec(s); m; m = rejectionDirect.exec(s)) {
+    const tokenIndex = tokenStartIndex(m, m[1], false);
+    if (isCompetingParameterToken(s, tokenIndex, m[1])) return true;
+  }
+  return false;
+}
+
+function isConflictingDiagnosticProse(str: string | undefined): boolean {
+  if (!str) return false;
+  const s = str.trim();
+  if (!s) return false;
+  if (
+    /\b(?:permission[-_]denied|insufficient[-_]quota|rate[-_]limit[-_]exceeded|model[-_]not[-_]found|context[-_]length[-_]exceeded|access[-_]denied|unauthorized|invalid[-_]api[-_]key|account[-_]deactivated|billing[-_]hard[-_]limit)\b/i.test(s)
+  ) {
+    return true;
+  }
+  const codeMatch = /\bcode\s*[:=]\s*["']?([a-zA-Z0-9_\-]+)["']?/i.exec(s);
+  if (codeMatch && codeMatch[1]) {
+    const code = codeMatch[1].trim().toLowerCase().replaceAll("-", "_");
+    if (!EFFORT_COMPATIBLE_CODES.has(code)) return true;
+  }
+  const typeMatch = /\btype\s*[:=]\s*["']?([a-zA-Z0-9_\-]+)["']?/i.exec(s);
+  if (typeMatch && typeMatch[1]) {
+    const type = typeMatch[1].trim().toLowerCase().replaceAll("-", "_");
+    if (!EFFORT_COMPATIBLE_TYPES.has(type)) return true;
+  }
+  if (diagnosticTextNamesOtherParameter(s)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Rejects error envelopes that carry a conflicting code (e.g. permission_denied, insufficient_quota,
+ * rate_limit_exceeded, model_not_found, malformed non-string code) or competing diagnostic parameters
+ * (e.g. reasoning_effort at root with an inner error identifying temperature) so they stay terminal
+ * or proceed to combo failover without false reasoning-effort learning or same-target ladder retries (#8173).
+ */
+export function hasConflictingReasoningEffortCode(text: string | undefined): boolean {
+  if (!text) return false;
+  if (isIncompleteStructuredWrapper(text)) return true;
+  let unescaped = text.trim();
+  for (let d = 0; d < 3; d += 1) {
+    if (unescaped.startsWith("Provider error 400: ")) {
+      unescaped = unescaped.slice("Provider error 400: ".length).trim();
+    }
+    if (unescaped.startsWith("data:") && !unescaped.includes("\n")) {
+      unescaped = unescaped.slice("data:".length).trim();
+    }
+  }
+  let parsed: unknown;
+  let outerPrefix = "";
+  let outerSuffix = "";
+  try {
+    parsed = JSON.parse(unescaped);
+  } catch {
+    const extracted = extractJsonEnvelopeWithContext(unescaped);
+    if (extracted) {
+      parsed = extracted.value;
+      outerPrefix = extracted.prefix;
+      outerSuffix = extracted.suffix;
+    }
+  }
+  if (isConflictingDiagnosticProse(outerPrefix) || isConflictingDiagnosticProse(outerSuffix)) {
+    return true;
+  }
+  if (!parsed || typeof parsed !== "object") {
+    if (isIncompleteStructuredWrapper(unescaped)) return true;
+    const hasBraces = unescaped.includes("{") && unescaped.includes("}");
+    const hasBrackets =
+      unescaped.includes('["') ||
+      (unescaped.includes("[") &&
+        unescaped.includes("]") &&
+        (unescaped.includes('"') || unescaped.includes("'") || unescaped.includes(",")));
+    if (hasBraces || hasBrackets) return true;
+    return isConflictingDiagnosticProse(unescaped);
+  }
+  try {
+    const queue: unknown[] = [parsed];
+    let examined = 0;
+    while (queue.length > 0 && examined < 32) {
+      const candidate = queue.shift();
+      examined += 1;
+      if (!candidate || typeof candidate !== "object") continue;
+      if (Array.isArray(candidate)) {
+        if (candidate.length > 32) return true;
+        for (const item of candidate) {
+          if (item && typeof item === "object") {
+            queue.push(item);
+          } else if (typeof item === "string") {
+            if (item.length > 16_384) return true;
+            let innerItem: unknown;
+            let innerPrefix = "";
+            let innerSuffix = "";
+            try {
+              innerItem = JSON.parse(item);
+            } catch {
+              const extractedItem = extractJsonEnvelopeWithContext(item);
+              if (extractedItem) {
+                innerItem = extractedItem.value;
+                innerPrefix = extractedItem.prefix;
+                innerSuffix = extractedItem.suffix;
+              }
+            }
+            if (innerItem && typeof innerItem === "object") {
+              if (isConflictingDiagnosticProse(innerPrefix) || isConflictingDiagnosticProse(innerSuffix)) {
+                return true;
+              }
+              queue.push(innerItem);
+            } else if (isIncompleteStructuredWrapper(item)) {
+              return true;
+            } else {
+              const trimmed = item.trim();
+              if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+                try {
+                  const parsedItem = JSON.parse(item);
+                  if (parsedItem && typeof parsedItem === "object") {
+                    queue.push(parsedItem);
+                  } else {
+                    return true;
+                  }
+                } catch {
+                  return true;
+                }
+              } else {
+                const codeLike = trimmed.toLowerCase().replaceAll("-", "_");
+                if (
+                  !codeLike.includes(" ") &&
+                  (codeLike.includes("_") || codeLike.length < 32) &&
+                  !EFFORT_COMPATIBLE_CODES.has(codeLike) &&
+                  !EFFORT_COMPATIBLE_TYPES.has(codeLike)
+                ) {
+                  return true;
+                }
+                if (isConflictingDiagnosticProse(trimmed)) {
+                  return true;
+                }
+              }
+            }
+          } else {
+            return true;
+          }
+        }
+        continue;
+      }
+      const rec = candidate as Record<string, unknown>;
+      if (rec.param !== undefined && rec.param !== null) {
+        if (typeof rec.param !== "string") return true;
+        const param = rec.param.trim().toLowerCase();
+        if (param.length > 0 && !EFFORT_PARAM_NAMES.has(param)) return true;
+      }
+      if (rec.code !== undefined && rec.code !== null) {
+        if (typeof rec.code !== "string") return true;
+        const code = rec.code.trim().toLowerCase().replaceAll("-", "_");
+        if (!EFFORT_COMPATIBLE_CODES.has(code)) return true;
+      }
+      if (rec.type !== undefined && rec.type !== null) {
+        if (typeof rec.type !== "string") return true;
+        const type = rec.type.trim().toLowerCase().replaceAll("-", "_");
+        if (!EFFORT_COMPATIBLE_TYPES.has(type)) return true;
+      }
+      for (const field of ["message", "error", "details", "detail", "response", "last_error", "errors"] as const) {
+        const val = rec[field];
+        if (val && typeof val === "object") {
+          queue.push(val);
+        } else if (typeof val === "string") {
+          let inner: unknown;
+          let innerPrefix = "";
+          let innerSuffix = "";
+          try {
+            inner = JSON.parse(val);
+          } catch {
+            const extracted = extractJsonEnvelopeWithContext(val);
+            if (extracted) {
+              inner = extracted.value;
+              innerPrefix = extracted.prefix;
+              innerSuffix = extracted.suffix;
+            }
+          }
+          if (inner && typeof inner === "object") {
+            if (isConflictingDiagnosticProse(innerPrefix) || isConflictingDiagnosticProse(innerSuffix)) {
+              return true;
+            }
+            queue.push(inner);
+          } else if (isIncompleteStructuredWrapper(val)) {
+            return true;
+          } else if (isConflictingDiagnosticProse(val)) {
+            return true;
+          }
+        }
+      }
+    }
+    if (queue.length > 0) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function diagnosticTextBlamesReasoningEffort(text: string): boolean {
+  if (diagnosticTextNamesOtherParameter(text)) return false;
   if (/unsupported.{0,24}effort/i.test(text)) return true;
-  // An upstream that names the offending parameter has already said which one it means.
-  if (/["']?param["']?\s*[:=]\s*["']?(?:reasoning[._ ]effort|reasoning)/i.test(text)) return true;
   const scanned = text.replace(GENERIC_ERROR_TYPE, " ");
   const term = /reasoning\.effort|reasoning_effort|reasoning effort|thinking budget|reasoning_parameters/gi;
   for (let match = term.exec(scanned); match; match = term.exec(scanned)) {
-    const from = Math.max(0, match.index - REJECTION_WINDOW);
-    const to = Math.min(scanned.length, match.index + match[0].length + REJECTION_WINDOW);
-    if (REJECTION_LANGUAGE.test(scanned.slice(from, to))) return true;
+    const preText = scanned.slice(0, match.index);
+    const postText = scanned.slice(match.index + match[0].length);
+    const lastBoundary = Math.max(
+      preText.lastIndexOf(";"),
+      preText.lastIndexOf("\n"),
+      preText.lastIndexOf("|"),
+      preText.search(/\.(?:\s+|$)(?=[^.]*$)/)
+    );
+    const clauseStart = lastBoundary !== -1 ? lastBoundary + 1 : 0;
+    const nextBoundary = postText.search(/[;\n|]|\.(?:\s+|$)/);
+    const clauseEnd = nextBoundary !== -1 ? match.index + match[0].length + nextBoundary : scanned.length;
+
+    const from = Math.max(clauseStart, match.index - REJECTION_WINDOW);
+    const to = Math.min(clauseEnd, match.index + match[0].length + REJECTION_WINDOW);
+    const windowText = scanned.slice(from, to);
+    if (REJECTION_LANGUAGE.test(windowText)) {
+      if (!diagnosticTextNamesOtherParameter(windowText)) {
+        return true;
+      }
+    }
   }
   return false;
+}
+
+function diagnosticRecordBlamesReasoningEffort(rec: Record<string, unknown>, depth = 0): boolean {
+  if (depth > 4) return false;
+  if (typeof rec.param === "string") {
+    const param = rec.param.trim().toLowerCase();
+    if (EFFORT_PARAM_NAMES.has(param)) return true;
+    return false;
+  }
+  if (typeof rec.message === "string") {
+    if (rec.message.includes("{") || rec.message.startsWith("Provider error 400: ")) {
+      return isReasoningEffortRejection(rec.message, depth + 1);
+    }
+    if (diagnosticTextBlamesReasoningEffort(rec.message)) return true;
+  }
+  if (typeof rec.error === "string") {
+    if (rec.error.includes("{") || rec.error.startsWith("Provider error 400: ")) {
+      return isReasoningEffortRejection(rec.error, depth + 1);
+    }
+    if (diagnosticTextBlamesReasoningEffort(rec.error)) return true;
+  }
+  if (typeof rec.detail === "string") {
+    if (rec.detail.includes("{") || rec.detail.startsWith("Provider error 400: ")) {
+      return isReasoningEffortRejection(rec.detail, depth + 1);
+    }
+    if (diagnosticTextBlamesReasoningEffort(rec.detail)) return true;
+  } else if (Array.isArray(rec.detail)) {
+    for (const item of rec.detail) {
+      if (item && typeof item === "object") {
+        if (diagnosticRecordBlamesReasoningEffort(item as Record<string, unknown>, depth + 1)) return true;
+      } else if (typeof item === "string") {
+        if (item.includes("{") || item.startsWith("Provider error 400: ")) {
+          if (isReasoningEffortRejection(item, depth + 1)) return true;
+        } else if (diagnosticTextBlamesReasoningEffort(item)) {
+          return true;
+        }
+      }
+    }
+  } else if (rec.detail && typeof rec.detail === "object") {
+    if (diagnosticRecordBlamesReasoningEffort(rec.detail as Record<string, unknown>, depth + 1)) return true;
+  }
+  if (typeof rec.details === "string") {
+    if (rec.details.includes("{") || rec.details.startsWith("Provider error 400: ")) {
+      return isReasoningEffortRejection(rec.details, depth + 1);
+    }
+    if (diagnosticTextBlamesReasoningEffort(rec.details)) return true;
+  } else if (Array.isArray(rec.details)) {
+    for (const item of rec.details) {
+      if (item && typeof item === "object") {
+        if (diagnosticRecordBlamesReasoningEffort(item as Record<string, unknown>, depth + 1)) return true;
+      } else if (typeof item === "string") {
+        if (item.includes("{") || item.startsWith("Provider error 400: ")) {
+          if (isReasoningEffortRejection(item, depth + 1)) return true;
+        } else if (diagnosticTextBlamesReasoningEffort(item)) {
+          return true;
+        }
+      }
+    }
+  } else if (rec.details && typeof rec.details === "object") {
+    if (diagnosticRecordBlamesReasoningEffort(rec.details as Record<string, unknown>, depth + 1)) return true;
+  }
+  if (typeof rec.last_error === "string") {
+    if (rec.last_error.includes("{") || rec.last_error.startsWith("Provider error 400: ")) {
+      return isReasoningEffortRejection(rec.last_error, depth + 1);
+    }
+    if (diagnosticTextBlamesReasoningEffort(rec.last_error)) return true;
+  } else if (rec.last_error && typeof rec.last_error === "object") {
+    if (diagnosticRecordBlamesReasoningEffort(rec.last_error as Record<string, unknown>, depth + 1)) return true;
+  }
+  return false;
+}
+
+/**
+ * Evidence test for a rejection body: does it blame reasoning effort?
+ *
+ * Restricts inspections to authoritative diagnostic carriers (error, errors, details, detail, last_error, response)
+ * so echoed request context (e.g. request.param: "reasoning_effort") does not falsely classify unrelated 400s
+ * (such as temperature or max_tokens errors) as effort refusals (#8173).
+ */
+export function isReasoningEffortRejection(text: string | undefined, depth = 0): boolean {
+  if (!text || depth > 4) return false;
+  if (isHardPolicyOrOriginRefusal(text)) return false;
+  if (hasConflictingReasoningEffortCode(text)) return false;
+
+  let unescaped = text.trim();
+  for (let d = 0; d < 3; d += 1) {
+    if (unescaped.startsWith("Provider error 400: ")) {
+      unescaped = unescaped.slice("Provider error 400: ".length).trim();
+    }
+    if (unescaped.startsWith("data:") && !unescaped.includes("\n")) {
+      unescaped = unescaped.slice("data:".length).trim();
+    }
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(unescaped);
+  } catch {
+    parsed = extractJsonEnvelope(unescaped);
+  }
+
+  if (parsed && typeof parsed === "object") {
+    if (Array.isArray(parsed)) {
+      if (hasConflictingReasoningEffortCode(unescaped)) return false;
+      for (const item of parsed) {
+        if (item && typeof item === "object") {
+          if (diagnosticRecordBlamesReasoningEffort(item as Record<string, unknown>, depth + 1)) return true;
+        } else if (typeof item === "string") {
+          if (item.includes("{") || item.startsWith("Provider error 400: ")) {
+            if (isReasoningEffortRejection(item, depth + 1)) return true;
+          } else if (diagnosticTextBlamesReasoningEffort(item)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    const root = parsed as Record<string, unknown>;
+
+    if (root.error !== undefined && root.error !== null) {
+      if (typeof root.error === "object" && !Array.isArray(root.error)) {
+        if (diagnosticRecordBlamesReasoningEffort(root.error as Record<string, unknown>, depth + 1)) return true;
+      } else if (typeof root.error === "string") {
+        if (root.error.includes("{") || root.error.startsWith("Provider error 400: ")) {
+          if (isReasoningEffortRejection(root.error, depth + 1)) return true;
+        } else if (diagnosticTextBlamesReasoningEffort(root.error)) {
+          return true;
+        }
+      }
+    }
+
+    if (Array.isArray(root.errors)) {
+      for (const item of root.errors) {
+        if (item && typeof item === "object") {
+          if (diagnosticRecordBlamesReasoningEffort(item as Record<string, unknown>, depth + 1)) return true;
+        } else if (typeof item === "string") {
+          if (item.includes("{") || item.startsWith("Provider error 400: ")) {
+            if (isReasoningEffortRejection(item, depth + 1)) return true;
+          } else if (diagnosticTextBlamesReasoningEffort(item)) {
+            return true;
+          }
+        }
+      }
+    }
+
+    if (Array.isArray(root.details)) {
+      for (const item of root.details) {
+        if (item && typeof item === "object") {
+          if (diagnosticRecordBlamesReasoningEffort(item as Record<string, unknown>, depth + 1)) return true;
+        } else if (typeof item === "string") {
+          if (item.includes("{") || item.startsWith("Provider error 400: ")) {
+            if (isReasoningEffortRejection(item, depth + 1)) return true;
+          } else if (diagnosticTextBlamesReasoningEffort(item)) {
+            return true;
+          }
+        }
+      }
+    } else if (typeof root.details === "string") {
+      if (root.details.includes("{") || root.details.startsWith("Provider error 400: ")) {
+        if (isReasoningEffortRejection(root.details, depth + 1)) return true;
+      } else if (diagnosticTextBlamesReasoningEffort(root.details)) {
+        return true;
+      }
+    } else if (root.details && typeof root.details === "object") {
+      if (diagnosticRecordBlamesReasoningEffort(root.details as Record<string, unknown>, depth + 1)) return true;
+    }
+
+    if (typeof root.detail === "string") {
+      if (root.detail.includes("{") || root.detail.startsWith("Provider error 400: ")) {
+        if (isReasoningEffortRejection(root.detail, depth + 1)) return true;
+      } else if (diagnosticTextBlamesReasoningEffort(root.detail)) {
+        return true;
+      }
+    } else if (Array.isArray(root.detail)) {
+      for (const item of root.detail) {
+        if (item && typeof item === "object") {
+          if (diagnosticRecordBlamesReasoningEffort(item as Record<string, unknown>, depth + 1)) return true;
+        } else if (typeof item === "string") {
+          if (item.includes("{") || item.startsWith("Provider error 400: ")) {
+            if (isReasoningEffortRejection(item, depth + 1)) return true;
+          } else if (diagnosticTextBlamesReasoningEffort(item)) {
+            return true;
+          }
+        }
+      }
+    } else if (root.detail && typeof root.detail === "object") {
+      if (diagnosticRecordBlamesReasoningEffort(root.detail as Record<string, unknown>, depth + 1)) return true;
+    }
+
+    if (typeof root.last_error === "string") {
+      if (root.last_error.includes("{") || root.last_error.startsWith("Provider error 400: ")) {
+        if (isReasoningEffortRejection(root.last_error, depth + 1)) return true;
+      } else if (diagnosticTextBlamesReasoningEffort(root.last_error)) {
+        return true;
+      }
+    } else if (root.last_error && typeof root.last_error === "object") {
+      if (diagnosticRecordBlamesReasoningEffort(root.last_error as Record<string, unknown>, depth + 1)) return true;
+    }
+
+    if (root.response && typeof root.response === "object") {
+      const resp = root.response as Record<string, unknown>;
+      if (resp.error && typeof resp.error === "object") {
+        if (diagnosticRecordBlamesReasoningEffort(resp.error as Record<string, unknown>, depth + 1)) return true;
+      }
+      if (typeof resp.last_error === "string") {
+        if (resp.last_error.includes("{") || resp.last_error.startsWith("Provider error 400: ")) {
+          if (isReasoningEffortRejection(resp.last_error, depth + 1)) return true;
+        } else if (diagnosticTextBlamesReasoningEffort(resp.last_error)) {
+          return true;
+        }
+      } else if (resp.last_error && typeof resp.last_error === "object") {
+        if (diagnosticRecordBlamesReasoningEffort(resp.last_error as Record<string, unknown>, depth + 1)) return true;
+      }
+      if (typeof resp.details === "string") {
+        if (resp.details.includes("{") || resp.details.startsWith("Provider error 400: ")) {
+          if (isReasoningEffortRejection(resp.details, depth + 1)) return true;
+        } else if (diagnosticTextBlamesReasoningEffort(resp.details)) {
+          return true;
+        }
+      } else if (resp.details && typeof resp.details === "object") {
+        if (diagnosticRecordBlamesReasoningEffort(resp.details as Record<string, unknown>, depth + 1)) return true;
+      }
+      if (typeof resp.detail === "string") {
+        if (resp.detail.includes("{") || resp.detail.startsWith("Provider error 400: ")) {
+          if (isReasoningEffortRejection(resp.detail, depth + 1)) return true;
+        } else if (diagnosticTextBlamesReasoningEffort(resp.detail)) {
+          return true;
+        }
+      } else if (resp.detail && typeof resp.detail === "object") {
+        if (diagnosticRecordBlamesReasoningEffort(resp.detail as Record<string, unknown>, depth + 1)) return true;
+      }
+    }
+
+    if (root.error === undefined || typeof root.error !== "object") {
+      if (diagnosticRecordBlamesReasoningEffort(root, depth + 1)) return true;
+    }
+
+    return false;
+  }
+
+  const hasBraces = unescaped.includes("{") && unescaped.includes("}");
+  const hasBrackets =
+    unescaped.includes('["') ||
+    (unescaped.includes("[") &&
+      unescaped.includes("]") &&
+      (unescaped.includes('"') || unescaped.includes("'") || unescaped.includes(",")));
+  if (hasBraces || hasBrackets || isIncompleteStructuredWrapper(unescaped)) return false;
+
+  return diagnosticTextBlamesReasoningEffort(unescaped);
 }
 
 /**
@@ -478,6 +1318,7 @@ export function planReasoningEffortDowngrade(args: {
   requested?: string;
   rejectionText?: string;
 }): { effort: string; recorded: boolean } | undefined {
+  if (args.rejectionText && (isHardPolicyOrOriginRefusal(args.rejectionText) || hasConflictingReasoningEffortCode(args.rejectionText))) return undefined;
   const requested = args.requested === "ultra" ? "max" : args.requested;
   if (!requested || !RANKED.includes(requested)) return undefined;
   const recorded = recordUnsupportedReasoningEffort(args.provider, args.modelId, requested, args.rejectionText);
