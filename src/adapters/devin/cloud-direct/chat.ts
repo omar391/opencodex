@@ -1491,7 +1491,7 @@ export async function* streamChatEvents(req: CloudChatRequest): AsyncGenerator<C
         readP.catch(() => { /* swallowed; outer promise already rejected */ });
 
         idleController.signal.addEventListener('abort', () => {
-          try { void resp.body?.cancel(idleController.signal.reason ?? new Error('idle abort')); } catch { /* */ }
+          try { void resp.body?.cancel(idleController.signal.reason ?? new Error('idle abort')).catch(() => {}); } catch { /* */ }
           settle(() => reject(idleController.signal.reason ?? new Error('idle abort')));
         }, { once: true });
 
@@ -1588,7 +1588,7 @@ export async function* streamChatEvents(req: CloudChatRequest): AsyncGenerator<C
     // itself (cancel-via-reader requires holding the lock). Fire and
     // forget — there's nothing meaningful to do if cancel rejects.
     try { reader.releaseLock(); } catch { /* */ }
-    try { void resp.body?.cancel(); } catch { /* */ }
+    try { void resp.body?.cancel().catch(() => {}); } catch { /* */ }
   }
 
   if (trailerError) {
