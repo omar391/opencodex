@@ -51,11 +51,30 @@ const createdPrefix = new TextEncoder().encode(`data: ${JSON.stringify({
 `);
 
 describe("combo stream preflight", () => {
+  test("a required-tool contract failure carrying a tool call is not replayed", async () => {
+    const failed = (output: unknown[], retryable?: boolean) => sse({ type: "response.failed", response: {
+      id: "r1", status: "failed", output,
+      error: { code: "required_tool_contract_unsatisfied", message: "no tool call", ...(retryable === undefined ? {} : { retryable }) },
+    } });
+    const held = [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "held" }] }];
+    expect((await preflightComboStreamResponse(failed(held), { model: "m1", provider: "a" })).kind).toBe("failed");
+    expect((await preflightComboStreamResponse(failed(held, false), { model: "m1", provider: "a" })).kind).toBe("accepted");
+    const call = [{ type: "function_call", call_id: "c1", name: "f", arguments: "{}" }];
+    expect((await preflightComboStreamResponse(failed(call), { model: "m1", provider: "a" })).kind).toBe("accepted");
+    // A tool call on the event's own output counts too, even beside an empty snapshot output.
+    const topLevel = sse({ type: "response.failed", output: call, response: {
+      id: "r1", status: "failed", output: [], error: { code: "required_tool_contract_unsatisfied", message: "no tool call" },
+    } });
+    expect((await preflightComboStreamResponse(topLevel, { model: "m1", provider: "a" })).kind).toBe("accepted");
+  });
+
   test("keeps only lifecycle preamble replayable and treats unknown output conservatively", () => {
     expect(comboStreamPayloadCommitsOutput({ type: "response.created" })).toBe(false);
     expect(comboStreamPayloadCommitsOutput({ type: "response.heartbeat" })).toBe(false);
     expect(comboStreamPayloadCommitsOutput({ type: "response.failed" })).toBe(false);
     expect(comboStreamPayloadCommitsOutput({ type: "response.incomplete" })).toBe(false);
+    expect(comboStreamPayloadCommitsOutput({ type: "response.output_text.delta", delta: "" })).toBe(false);
+    expect(comboStreamPayloadCommitsOutput({ type: "response.output_text.delta" })).toBe(false);
     expect(comboStreamPayloadCommitsOutput({ type: "response.output_text.delta", delta: "x" })).toBe(true);
     expect(comboStreamPayloadCommitsOutput({ type: "response.output_item.added", item: { type: "function_call" } })).toBe(true);
     expect(comboStreamPayloadCommitsOutput({ type: "provider.future_event" })).toBe(true);
@@ -143,7 +162,7 @@ describe("combo stream preflight", () => {
     expect(await result.response.text()).toBe(expected);
   });
 
-  for (const reason of ["max_output_tokens", "content_filter", "future_semantic_reason", "", null])
+  for (const reason of ["content_filter", "future_semantic_reason", "", null])
   test(`does not replay semantic or explicit unknown incomplete reasons (${JSON.stringify(reason)})`, async () => {
     const source = sse(
       { type: "response.created", response: { id: "r1", status: "in_progress" } },
@@ -913,4 +932,87 @@ describe("combo stream preflight", () => {
     })).toBe(true);
   });
 
+  test("converts a zero-output incomplete with max_output_tokens into a retryable failure", async () => {
+    const source = sse(
+      { type: "response.created", response: { id: "r1", status: "in_progress" } },
+      {
+        type: "response.incomplete",
+        response: {
+          id: "r1",
+          status: "incomplete",
+          incomplete_details: { reason: "max_output_tokens" },
+          output: [],
+          usage: { input_tokens: 25, output_tokens: 0, total_tokens: 25 },
+        },
+      },
+    );
+
+    const result = await preflightComboStreamResponse(source, { model: "m1", provider: "a" });
+    expect(result.kind).toBe("failed");
+    expect(result.response.status).toBe(502);
+    const body = await result.response.json();
+    expect(body).toMatchObject({
+      error: {
+        code: "zero_output_token_limit",
+        message: "Provider reached its output token limit before producing output",
+      },
+      response: {
+        usage: { input_tokens: 25, output_tokens: 0 },
+      },
+    });
+  });
+
+  test("does not retry max_output_tokens when output was already produced", async () => {
+    const source = sse(
+      { type: "response.created", response: { id: "r1", status: "in_progress" } },
+      { type: "response.output_text.delta", delta: "partial answer" },
+      {
+        type: "response.incomplete",
+        response: {
+          id: "r1",
+          status: "incomplete",
+          incomplete_details: { reason: "max_output_tokens" },
+        },
+      },
+    );
+
+    const expected = await source.clone().text();
+    const result = await preflightComboStreamResponse(source, { model: "m1", provider: "a" });
+    expect(result.kind).toBe("accepted");
+    expect(await result.response.text()).toBe(expected);
+  });
+
+  test("converts a zero-output incomplete with max_output_tokens after empty delta into a retryable failure", async () => {
+    const source = sse(
+      { type: "response.created", response: { id: "r1", status: "in_progress" } },
+      { type: "response.output_text.delta", delta: "" },
+      {
+        type: "response.incomplete",
+        response: {
+          id: "r1",
+          status: "incomplete",
+          incomplete_details: { reason: "max_output_tokens" },
+          output: [],
+          usage: { input_tokens: 25, output_tokens: 0, total_tokens: 25 },
+        },
+      },
+    );
+
+    const result = await preflightComboStreamResponse(source, { model: "m1", provider: "a" });
+    expect(result.kind).toBe("failed");
+    expect(result.response.status).toBe(502);
+    const body = await result.response.json();
+    expect(body).toMatchObject({
+      error: {
+        code: "zero_output_token_limit",
+        message: "Provider reached its output token limit before producing output",
+      },
+      response: {
+        usage: { input_tokens: 25, output_tokens: 0 },
+      },
+    });
+  });
+
 });
+
+

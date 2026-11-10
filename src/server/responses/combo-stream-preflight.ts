@@ -165,23 +165,61 @@ function bareErrorIsRetryable(payload: unknown): boolean {
   return hops(nestedCode ?? rootCode);
 }
 
+/**
+ * Only text and reasoning items, which the required-tool guard holds back until it decides. Both the
+ * snapshot's and the event's own `output` are read; an absent or empty one contributes nothing.
+ */
+function heldOnlyOutput(...outputs: unknown[]): boolean {
+  const items = outputs.flatMap(output => Array.isArray(output) ? output : []);
+  if (outputs.some(output => output !== undefined && !Array.isArray(output))) return false;
+  return items.length > 0 && items.every(item => item !== null && typeof item === "object"
+    && !Array.isArray(item) && ["message", "reasoning"].includes((item as { type?: unknown }).type as string));
+}
+
 function retryableZeroOutputTerminal(payload: unknown): boolean {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
   const event = payload as {
     type?: unknown;
-    response?: { incomplete_details?: { reason?: unknown }; output?: unknown };
+    status?: unknown;
+    incomplete_details?: { reason?: unknown };
+    output?: unknown;
+    error?: { code?: unknown; retryable?: unknown };
+    response?: {
+      status?: unknown;
+      incomplete_details?: { reason?: unknown };
+      output?: unknown;
+      error?: { code?: unknown; retryable?: unknown };
+    };
   };
   if (bareErrorIsRetryable(event)) return true;
-  if (event.type === "response.failed") {
-    const error = (event.response as { error?: { code?: unknown; retryable?: unknown } } | undefined)?.error;
+  const target = (event.response && typeof event.response === "object" && !Array.isArray(event.response))
+    ? event.response as Record<string, unknown>
+    : event as Record<string, unknown>;
+  const emptyOutput = (!Array.isArray(event.output) || event.output.length === 0)
+    && (!Array.isArray(target.output) || target.output.length === 0);
+
+  if (event.type === "response.failed" || event.status === "failed") {
+    const error = (event.response as { error?: { code?: unknown; retryable?: unknown } } | undefined)?.error
+      ?? event.error;
     const code = error?.code;
-    if (code === REQUIRED_TOOL_CONTRACT_CODE && error?.retryable === false) return false;
+    // The required-tool guard synthesizes this terminal over output it held back from the client,
+    // so held text and reasoning are not evidence of anything sent; it keeps the retryability it
+    // carries. Any other output item (a tool call, an action) still commits it.
+    if (code === REQUIRED_TOOL_CONTRACT_CODE) {
+      return error?.retryable !== false && (emptyOutput || heldOnlyOutput(target.output, event.output));
+    }
+    if (!emptyOutput) return false;
     return !(typeof code === "string" && NON_REPLAYABLE_FAILED_CODES.has(code));
   }
-  if (event.type !== "response.incomplete") return false;
-  const reason = event.response?.incomplete_details?.reason;
-  // A terminal-only upstream can carry output without preceding delta/item events.
-  if (reason === undefined) return !Array.isArray(event.response?.output) || event.response.output.length === 0;
+  const isIncomplete = event.type === "response.incomplete" || event.status === "incomplete";
+  if (!isIncomplete) return false;
+  if (!emptyOutput) return false;
+  const incompleteDetails = (target.incomplete_details && typeof target.incomplete_details === "object" && !Array.isArray(target.incomplete_details))
+    ? (target.incomplete_details as { reason?: unknown }).reason
+    : undefined;
+  const reason = incompleteDetails;
+  if (reason === undefined) return true;
+  if (reason === "max_output_tokens") return true;
   return typeof reason === "string" && RETRYABLE_ZERO_OUTPUT_INCOMPLETE_REASONS.has(reason);
 }
 
@@ -204,6 +242,10 @@ export function comboStreamPayloadCommitsOutput(payload: unknown): boolean {
       const output = (response as { output?: unknown }).output;
       if (Array.isArray(output) && output.length > 0) return true;
     }
+  }
+  if (type === "response.output_text.delta") {
+    const delta = (payload as { delta?: unknown }).delta;
+    if (delta === undefined || (typeof delta === "string" && delta.length === 0)) return false;
   }
   return !PRE_OUTPUT_CONTROL_EVENTS.has(type) && !CODEX_METADATA_CONTROL_EVENTS.has(type)
     && !TERMINAL_EVENTS.has(type);
@@ -279,8 +321,8 @@ function failedTerminalResponse(
   const nested = terminalPayload.response;
   const terminalResponse = nested && typeof nested === "object" && !Array.isArray(nested)
     ? nested as Record<string, unknown>
-    : {};
-  const nestedError = terminalResponse.error;
+    : terminalPayload;
+  const nestedError = (nested as Record<string, unknown> | undefined)?.error;
   const topLevelError = terminalPayload.error;
   const error = nestedError && typeof nestedError === "object" && !Array.isArray(nestedError)
     ? nestedError as Record<string, unknown>
@@ -303,10 +345,16 @@ function failedTerminalResponse(
             ? terminalPayload.code
             : typeof terminalPayload.code === "number" && Number.isFinite(terminalPayload.code)
               ? String(terminalPayload.code)
-              : null) : "upstream_server_error",
+              : null)
+        : ((terminalPayload.type === "response.incomplete" || terminalPayload.status === "incomplete")
+          && (terminalResponse.incomplete_details as { reason?: unknown } | undefined)?.reason === "max_output_tokens"
+            ? "zero_output_token_limit" : "upstream_server_error"),
       message: typeof terminalPayload.message === "string"
         ? terminalPayload.message
-        : logCtx.upstreamError ?? "Provider stream failed before producing output",
+        : ((terminalPayload.type === "response.incomplete" || terminalPayload.status === "incomplete")
+          && (terminalResponse.incomplete_details as { reason?: unknown } | undefined)?.reason === "max_output_tokens"
+            ? "Provider reached its output token limit before producing output"
+            : logCtx.upstreamError ?? "Provider stream failed before producing output"),
     };
   const headers = new Headers(response.headers);
   headers.set("content-type", "application/json");
@@ -352,12 +400,20 @@ export async function preflightComboStreamResponse(
   response: Response,
   logCtx: RequestLogContext,
   retryableTerminal: (payload: unknown) => boolean = retryableZeroOutputTerminal,
-  options?: { allowMissingContentType?: boolean; replayReadErrors?: boolean; requiredToolPrelude?: boolean; signal?: AbortSignal },
+  options?: {
+    allowMissingContentType?: boolean;
+    replayReadErrors?: boolean;
+    requiredToolPrelude?: boolean;
+    signal?: AbortSignal;
+  },
 ): Promise<ComboStreamPreflightResult> {
   const contentType = response.headers.get("content-type");
   const isEventStream = hasResponseMediaType(response.headers, "text/event-stream")
     || (!contentType && options?.allowMissingContentType === true);
-  if (!response.ok || !response.body || !isEventStream) {
+  if (!response.ok || !response.body) {
+    return { kind: "accepted", response };
+  }
+  if (!isEventStream) {
     return { kind: "accepted", response };
   }
 

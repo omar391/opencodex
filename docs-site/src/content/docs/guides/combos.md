@@ -799,18 +799,25 @@ classify the original HTTP 403 as a hop.
 For streaming requests, the upstream HTTP status is not the final decision. OpenCodex buffers a
 bounded pre-output prefix of the selected child's Responses SSE. If the stream reports a retryable
 `response.failed` terminal before any text, reasoning, tool call, or other output event, the child
-is recorded as failed and the combo may try its next eligible target. A zero-output
-`response.incomplete` follows the same path when its reason is missing or is `adapter_eof`,
-`missing_terminal_event`, or `upstream_stall_timeout`. Explicit semantic reasons such as
-`max_output_tokens` and `content_filter` remain terminal, as does an explicit null reason.
+is recorded as failed and the combo may try its next eligible target. Run-turn combo targets buffer
+their pre-output reasoning for up to one second instead: if a
+zero-output `max_output_tokens` terminal arrives before any visible output and within the hold, the
+turn advances to another eligible target without cooling the healthy candidate; once the reasoning
+hold expires or visible output begins, the target commits and buffered reasoning is streamed
+immediately to the client. A zero-output `response.incomplete` follows the same path when its reason
+is missing or is `adapter_eof`, `missing_terminal_event`, `upstream_stall_timeout`, or an explicit
+`max_output_tokens` limit before any output is emitted. Other explicit semantic reasons such as
+`content_filter` remain terminal, as do post-output `max_output_tokens` limits and an explicit null reason.
+When every target ends with such a zero-output `max_output_tokens` limit, and no confirmed context
+refusal was seen (that one still takes precedence), the client receives the last attempt's HTTP 200
+`incomplete` response (reason `max_output_tokens`) with that attempt's usage, rather than a 502 failure.
 A reasonless final snapshot that already contains output items is also kept. The rate-limit and
 response-metadata frames that a native Codex (ChatGPT account) target sends over its WebSocket are
 not output, so an overload error that follows them with no output still moves to the next target.
-Once any output event begins,
-the target is committed: a later stream failure is returned to the client and is never replayed on
-another provider, which prevents duplicate text and tool execution. If the pre-output buffer reaches
-its safety cap without a terminal or output boundary, OpenCodex also commits the current target
-instead of growing memory without a bound.
+Once any output event begins or the reasoning hold deadline is reached, the target is committed: a later stream failure is
+returned to the client and is never replayed on another provider, which prevents duplicate text and tool
+execution. If the pre-output buffer reaches its safety cap without a terminal or output boundary,
+OpenCodex also commits the current target instead of growing memory without a bound.
 
 ## Request-local target compatibility
 
