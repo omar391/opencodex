@@ -222,6 +222,21 @@ export function streamingContextOverflowResponse(
   });
 }
 
+/** The incomplete JSON body combo exhaustion synthesizes, exposed so callers can register it. */
+export function jsonIncompletePayload(
+  modelId: string,
+  usage?: OcxUsage,
+  reason = "max_output_tokens",
+): Record<string, unknown> {
+  return buildResponseJSON([
+    {
+      type: "incomplete",
+      reason,
+      ...(usage ? { usage } : {}),
+    },
+  ], modelId);
+}
+
 /**
  * Return an incomplete JSON response with the target's usage and reason when combo candidates
  * exhaust on zero-output token limits.
@@ -231,14 +246,7 @@ export function jsonIncompleteResponse(
   usage?: OcxUsage,
   reason = "max_output_tokens",
 ): Response {
-  const json = buildResponseJSON([
-    {
-      type: "incomplete",
-      reason,
-      ...(usage ? { usage } : {}),
-    },
-  ], modelId);
-  return Response.json(json, { status: 200, headers: { "Cache-Control": "no-store" } });
+  return Response.json(jsonIncompletePayload(modelId, usage, reason), { status: 200, headers: { "Cache-Control": "no-store" } });
 }
 
 /**

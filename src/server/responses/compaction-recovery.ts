@@ -168,7 +168,11 @@ export async function runWithCompactionRecovery(
     if (response.ok && hasResponseMediaType(response.headers, "text/event-stream")) {
       const native = isNativePassthroughSseResponse(response);
       const eager = isEagerRelaySseResponse(response);
-      const preflight = await preflightComboStreamResponse(response, logCtx);
+      const preflight = await preflightComboStreamResponse(response, logCtx, undefined, {
+        // An output-budget stop is not a transport failure for compaction: keep the original
+        // incomplete stream instead of projecting the combo-only zero_output_token_limit code.
+        projectZeroOutputTokenLimit: false,
+      });
       response = preflight.response;
       if (preflight.kind !== "failed") {
         if (native) markNativePassthroughSseResponse(response);

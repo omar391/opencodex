@@ -899,6 +899,32 @@ describe("combo stream preflight", () => {
     } finally { budget.dispose(); }
   });
 
+  test("keeps the original incomplete when token-limit projection is disabled", async () => {
+    // Compaction recovery shares this preflight but has no zero_output_token_limit policy:
+    // the opt-out must deliver the upstream incomplete unchanged while transport-failure
+    // reasons stay retryable.
+    const source = sse(
+      { type: "response.created", response: { id: "r1", status: "in_progress" } },
+      {
+        type: "response.incomplete",
+        response: {
+          id: "r1",
+          status: "incomplete",
+          incomplete_details: { reason: "max_output_tokens" },
+          output: [],
+          usage: { input_tokens: 25, output_tokens: 0, total_tokens: 25 },
+        },
+      },
+    );
+
+    const expected = await source.clone().text();
+    const result = await preflightComboStreamResponse(source, { model: "m1", provider: "a" }, undefined, {
+      projectZeroOutputTokenLimit: false,
+    });
+    expect(result.kind).toBe("accepted");
+    expect(await result.response.text()).toBe(expected);
+  });
+
   test("converts a zero-output incomplete with max_output_tokens after empty delta into a retryable failure", async () => {
     const source = sse(
       { type: "response.created", response: { id: "r1", status: "in_progress" } },

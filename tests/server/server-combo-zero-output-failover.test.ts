@@ -1232,4 +1232,39 @@ describe("combo zero-output bare Responses error failover", () => {
     expect(body).toContain('"retryable":false');
     expect(body).not.toContain("fail backup");
   });
+
+  test("non-streaming exhausted zero-output ladder registers its incomplete for continuation", async () => {
+    customRunTurn = async (parsed, _incoming, emit) => {
+      emit({
+        type: "done",
+        stopReason: "max_tokens",
+        usage: { inputTokens: 10, outputTokens: 0, totalTokens: 10 },
+      });
+    };
+    const config = comboConfig({
+      a: provider("test-run-turn", "https://a.test/v1", "key-a"),
+      b: provider("test-run-turn", "https://b.test/v1", "key-b"),
+    });
+    const request = () => new Request("http://localhost/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "combo/free", input: "hello", stream: false }),
+    });
+
+    const first = await handleResponses(request(), config, { model: "", provider: "" });
+    expect(first.status).toBe(200);
+    const firstBody = await first.json() as { id?: string; status?: string; incomplete_details?: { reason?: string } };
+    expect(firstBody.status).toBe("incomplete");
+    expect(firstBody.incomplete_details?.reason).toBe("max_output_tokens");
+    expect(typeof firstBody.id).toBe("string");
+
+    const second = await handleResponses(new Request("http://localhost/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "combo/free", previous_response_id: firstBody.id, stream: false }),
+    }), config, { model: "", provider: "" });
+    const secondBody = await second.text();
+    expect(second.status).not.toBe(400);
+    expect(secondBody).not.toContain("previous_response_not_found");
+  });
 });

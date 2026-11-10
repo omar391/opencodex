@@ -130,9 +130,10 @@ import {
   streamingContextOverflowResponse,
   jsonContextOverflowResponse,
   lateAttributionLimitResponse,
-  jsonIncompleteResponse,
+  jsonIncompletePayload,
   streamingIncompleteResponse,
 } from "./context-overflow";
+import { rememberResponseState } from "../../responses/state";
 import { mandatoryResponsesReasoningReplayUnavailable } from "./core-replay";
 import { isReplayRefusalResponse, settleOperatorReplacement, UPSTREAM_RESET_REPLAY_REFUSED_CODE } from "../../lib/upstream-retry";
 import { attributeFinalRequest } from "../request-log-failure-attribution";
@@ -938,10 +939,22 @@ export async function executeComboResponses(
       return contextFailure.response;
     }
     if (lastFailure && lastFailureUpstreamCode === "zero_output_token_limit" && zeroOutputLimitFailure) {
+      if (wantsStream) {
+        adoptFailedChildLog(zeroOutputLimitFailure.childLog);
+        return streamingIncompleteResponse(responseModel, zeroOutputLimitFailure.usage, "max_output_tokens", options.translatorBudget);
+      }
+      // The synthesized incomplete never passed through a child dispatch, so nothing registered
+      // its id: cache it like the run-turn path does for max-output incompletes or a follow-up
+      // previous_response_id resolves to previous_response_not_found.
+      const incompletePayload = jsonIncompletePayload(responseModel, zeroOutputLimitFailure.usage, "max_output_tokens");
+      rememberResponseState(rawBody, incompletePayload, undefined, {
+        // Proxy-internal continuation cache only (in-memory TTL): Codex sends store:false on
+        // every request, yet still chains continuations, so force mirrors the passthrough arm.
+        force: true,
+        clientThreadId: inboundClientThreadId,
+      });
       adoptFailedChildLog(zeroOutputLimitFailure.childLog);
-      return wantsStream
-        ? streamingIncompleteResponse(responseModel, zeroOutputLimitFailure.usage, "max_output_tokens", options.translatorBudget)
-        : jsonIncompleteResponse(responseModel, zeroOutputLimitFailure.usage, "max_output_tokens");
+      return Response.json(incompletePayload, { status: 200, headers: { "Cache-Control": "no-store" } });
     }
     const returnsQuota = lastFailure && [400, 401, 403].includes(lastFailure.status) && quotaFailure;
     const failedChildLog = returnsQuota ? quotaFailedChildLog : lastFailedChildLog;

@@ -142,7 +142,7 @@ function heldOnlyOutput(...outputs: unknown[]): boolean {
     && !Array.isArray(item) && ["message", "reasoning"].includes((item as { type?: unknown }).type as string));
 }
 
-function retryableZeroOutputTerminal(payload: unknown, context?: object): boolean {
+function retryableZeroOutputTerminal(payload: unknown, context?: object, projectZeroOutputTokenLimit = true): boolean {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
   const event = payload as {
     type?: unknown;
@@ -191,6 +191,11 @@ function retryableZeroOutputTerminal(payload: unknown, context?: object): boolea
     : undefined;
   const reason = details?.reason;
   if (reason === undefined) return true;
+  // The token-limit projection is a combo failover signal: compaction recovery shares this
+  // preflight but has no `zero_output_token_limit` policy, so callers outside the combo
+  // ladder opt out and keep the original incomplete stream. Transport-failure reasons
+  // (adapter_eof, stall timeouts) stay retryable for them.
+  if (reason === "max_output_tokens" && !projectZeroOutputTokenLimit) return false;
   if (reason === "max_output_tokens") {
     // Same evidence the run-turn classifier requires before it treats an output limit as a
     // replayable zero-output terminal: an explicitly unfinished turn or an explicitly
@@ -376,10 +381,18 @@ export async function preflightComboStreamResponse(
     allowMissingContentType?: boolean;
     replayReadErrors?: boolean;
     requiredToolPrelude?: boolean;
+    /**
+     * Combo callers only: project an empty `max_output_tokens` incomplete as the
+     * `zero_output_token_limit` failure the combo ladder understands. Compaction recovery
+     * shares this preflight but has no such policy, so it passes `false` and keeps the
+     * original incomplete stream. Defaults to the combo behavior.
+     */
+    projectZeroOutputTokenLimit?: boolean;
     signal?: AbortSignal;
   },
 ): Promise<ComboStreamPreflightResult> {
-  const retryableTerminalFor = retryableTerminal ?? ((payload: unknown) => retryableZeroOutputTerminal(payload, logCtx));
+  const retryableTerminalFor = retryableTerminal ?? ((payload: unknown) =>
+    retryableZeroOutputTerminal(payload, logCtx, options?.projectZeroOutputTokenLimit !== false));
   const contentType = response.headers.get("content-type");
   const isEventStream = hasResponseMediaType(response.headers, "text/event-stream")
     || (!contentType && options?.allowMissingContentType === true);
