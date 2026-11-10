@@ -15,6 +15,7 @@ import type { RequestLogContext } from "../request-log";
 import type { AttemptRecoveryKind } from "../../usage/log";
 import { rememberReasoningReplayOpaqueBlobRejection } from "../../responses/reasoning-replay-cache";
 import { resolvedAdapterWire } from "../../responses/continuation-ownership";
+import { OPAQUE_COMPACTION_NOTE } from "../../responses/compaction";
 
 export const OPAQUE_RESPONSES_INPUT_TYPES = new Set([
   "reasoning",
@@ -124,8 +125,7 @@ export function outboundResponsesBodyCarriesOpaqueBlob(bodyText: string | undefi
     if (
       typeof candidate.type === "string"
       && OPAQUE_RESPONSES_INPUT_TYPES.has(candidate.type)
-      && typeof candidate.encrypted_content === "string"
-      && candidate.encrypted_content.length > 0
+      && (typeof candidate.encrypted_content === "string" || candidate.type === "compaction" || candidate.type === "context_compaction" || candidate.type === "compaction_summary")
     ) return true;
     if (
       typeof candidate.type === "string"
@@ -254,21 +254,25 @@ export function isLiteLlmWrappedCiphertextRejection(payload: unknown): boolean {
 
 
 export function isSelfIdentifiedOpaqueBlobRejection(bodyText: string): boolean {
-  if (isEncryptedFunctionOutputRejection(bodyText)) return true;
+  let text = bodyText.trim();
+  if (text.startsWith("Provider error ")) {
+    text = text.slice(text.indexOf(": ") + 2).trim();
+  }
+  if (isEncryptedFunctionOutputRejection(text)) return true;
   try {
-    if (upstreamErrorMessageFromPayload(JSON.parse(bodyText) as unknown) === ENCRYPTED_FUNCTION_OUTPUT_REJECTION) {
+    if (upstreamErrorMessageFromPayload(JSON.parse(text) as unknown) === ENCRYPTED_FUNCTION_OUTPUT_REJECTION) {
       return true;
     }
   } catch {
     /* invalid JSON bodies fall through to the exact nested envelope checks */
   }
   try {
-    const payload = JSON.parse(bodyText) as unknown;
+    const payload = JSON.parse(text) as unknown;
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
-    const record = payload as { code?: unknown; type?: unknown; message?: unknown; error?: unknown };
+    const record = payload as { code?: unknown; type?: unknown; message?: unknown; error?: unknown; param?: unknown };
 
     if (record.error && typeof record.error === "object" && !Array.isArray(record.error)) {
-      const error = record.error as { type?: unknown; code?: unknown; message?: unknown };
+      const error = record.error as { type?: unknown; code?: unknown; message?: unknown; param?: unknown };
       // A gateway envelope is decided ONLY by its embedded payload, before any wording check
       // below runs. Those checks match anchored phrases anywhere in the message, and a gateway
       // quotes the upstream's message inside its own -- so without this the relayed text would
@@ -279,6 +283,11 @@ export function isSelfIdentifiedOpaqueBlobRejection(bodyText: string): boolean {
       }
       if (error.type === "invalid_request_error") {
         if (error.code === "invalid_encrypted_content") return true;
+        if (
+          error.code === "missing_required_parameter"
+          && (String(error.param ?? "").endsWith("encrypted_content")
+            || (typeof error.message === "string" && /missing required parameter:.*encrypted_content/i.test(error.message)))
+        ) return true;
         if (
           (error.code === null || error.code === undefined)
           && typeof error.message === "string"
@@ -300,7 +309,9 @@ export function isSelfIdentifiedOpaqueBlobRejection(bodyText: string): boolean {
     // error object. Match only the same dedicated code or exact verification identity.
     if ((record.error === undefined || record.error === null)
       && (record.type === "error" || record.type === "invalid_request_error")
-      && (record.code === "invalid_encrypted_content" || ((record.code === null || record.code === undefined)
+      && (record.code === "invalid_encrypted_content"
+        || (record.code === "missing_required_parameter" && (String(record.param ?? "").endsWith("encrypted_content") || (typeof record.message === "string" && /missing required parameter:.*encrypted_content/i.test(record.message))))
+        || ((record.code === null || record.code === undefined)
         && typeof record.message === "string" && record.message.startsWith("The encrypted content ")
         && record.message.endsWith(" could not be verified. Reason: Encrypted content could not be decrypted or parsed.")))) return true;
 
@@ -521,6 +532,17 @@ export function prepareOpaqueBlobRecovery(parsed: OcxParsedRequest): void {
     if (!item || typeof item !== "object" || Array.isArray(item)) return item;
     const record = item as Record<string, unknown>;
     const type = String(record.type ?? "");
+    if (type === "compaction" || type === "compaction_summary" || type === "context_compaction") {
+      return {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: OPAQUE_COMPACTION_NOTE }],
+      };
+    }
+    if (typeof record.encrypted_content === "string") {
+      const { encrypted_content: _, id: _id, ...rest } = record;
+      return rest;
+    }
     if (FUNCTION_OUTPUT_TYPES.has(type) && Array.isArray(record.output)) {
       const output = stripEncryptedParts(record.output);
       return output !== record.output ? { ...record, output } : item;

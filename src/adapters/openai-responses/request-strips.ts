@@ -1,6 +1,6 @@
 import { expandRetainedCompactionInput } from "../../responses/retained-compaction";
 import { createHash } from "node:crypto";
-import { COMPACT_PROMPT, appendCheckpointContinuationNote, compactionItemToText, decodeCompactionSummary, isCompactionItemType } from "../../responses/compaction";
+import { COMPACT_PROMPT, OPAQUE_COMPACTION_NOTE, appendCheckpointContinuationNote, compactionItemToText, decodeCompactionSummary, isCompactionItemType } from "../../responses/compaction";
 import { debugProviderDiagnostic } from "../../lib/debug";
 import { modelInList } from "../../types";
 import { isPlainObject } from "./internal";
@@ -434,7 +434,14 @@ export function scrubOcxCompactionItems(
   const input = expanded.map(item => {
     if (!isPlainObject(item) || !isCompactionItemType(item.type)) return item;
     const encrypted = typeof item.encrypted_content === "string" ? item.encrypted_content : undefined;
-    if (encrypted === undefined) return item;
+    if (encrypted === undefined) {
+      changed = true;
+      return {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: OPAQUE_COMPACTION_NOTE }],
+      };
+    }
     if (
       decodeCompactionSummary(encrypted) === null
       && destinationDecodesNativeBlob

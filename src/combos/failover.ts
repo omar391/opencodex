@@ -1096,6 +1096,25 @@ export function isProviderModerationRefusal(
   return namesModerationRefusal(text);
 }
 
+function isOpaqueEncryptedContentRefusal(status: number, message: string, code?: string | null): boolean {
+  if (status !== 400 && status !== 502) return false;
+  const normalizedCode = normalizedFailureCode(code);
+  if (normalizedCode === "invalid_encrypted_content") return true;
+  if (/invalid_encrypted_content/i.test(message)) return true;
+  if (/Encrypted content could not be decrypted/i.test(message)) return true;
+  if (/Could not decode the compaction blob/i.test(message)) return true;
+  if (/Could not decrypt the provided encrypted_content/i.test(message)) return true;
+  if (
+    (normalizedCode === "missing_required_parameter" || normalizedCode === "invalid_request_error" || !normalizedCode)
+    && (
+      /missing required parameter:.*encrypted_content/i.test(message)
+      || /["']param["']\s*:\s*["'][^"']*encrypted_content["']/i.test(message)
+      || /input\[\d+\]\.encrypted_content/i.test(message)
+    )
+  ) return true;
+  return false;
+}
+
 /** Return the narrowest cooldown scope supported by this target's failure evidence. */
 export function comboFailureCooldownScope(
   status: number,
@@ -1124,6 +1143,7 @@ export function comboFailureCooldownScope(
     // same reason every other entry here refuses to cool a target.
     || isResponseFormatCapabilityRefusal(status, message, rawCode)
     || isProviderModerationRefusal(status, message, rawCode)
+    || isOpaqueEncryptedContentRefusal(status, message, rawCode)
   ) return "none";
   if (isProviderScopedQuotaCap(status, message, rawCode)) return "provider";
   // A rejected or unpaid credential is provider-wide evidence: every target that routes
@@ -1348,6 +1368,7 @@ export function comboFailureDecision(
   if (isResponseFormatCapabilityRefusal(status, message, rawCode)) return "hop";
   if (isProviderModerationRefusal(status, message, rawCode)) return "hop";
   if (isAnthropicBillingFailure(status, message, rawCode)) return "hop";
+  if (isOpaqueEncryptedContentRefusal(status, message, rawCode)) return "hop";
   // Kiro's body validator rejects the request for the identity it was routed under. The account
   // layer rotates logins first; this is the no-alternate case, so the next combo target is the
   // only remaining chance to serve the turn. Only a caller that knows the failed target is a Kiro
