@@ -1185,4 +1185,51 @@ describe("combo zero-output bare Responses error failover", () => {
       expect(body).not.toContain("limit backup");
     });
   }
+
+  test("failed snapshot with error.retryable:false preserves the child turn", async () => {
+    const hits: string[] = [];
+    const encoder = new TextEncoder();
+    const frame = (event: unknown) => encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
+    const a = serve(() => {
+      hits.push("a");
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(frame({ type: "response.created", response: { id: "r1", status: "in_progress" } }));
+          controller.enqueue(frame({
+            type: "response.failed",
+            response: {
+              id: "r1",
+              status: "failed",
+              error: { code: "server_error", message: "upstream exploded", retryable: false },
+              output: [],
+              usage: { input_tokens: 9, output_tokens: 0, total_tokens: 9 },
+            },
+          }));
+          controller.close();
+        },
+      }), { headers: { "content-type": "text/event-stream" } });
+    });
+    const b = serve(() => {
+      hits.push("b");
+      return new Response(`data: ${JSON.stringify({ type: "response.completed", response: responsesSuccess("fail backup", "m2") })}\n\n`,
+        { headers: { "content-type": "text/event-stream" } });
+    });
+    const config = comboConfig({
+      a: provider("openai-responses", baseUrl(a), "key-a"),
+      b: provider("openai-responses", baseUrl(b), "key-b"),
+    });
+
+    const response = await handleResponses(new Request("http://localhost/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "combo/free", input: "hello", stream: true }),
+    }), config, { model: "", provider: "" });
+
+    const body = await response.text();
+    expect(response.status).toBe(200);
+    expect(hits).toEqual(["a"]);
+    expect(body).toContain("response.failed");
+    expect(body).toContain('"retryable":false');
+    expect(body).not.toContain("fail backup");
+  });
 });

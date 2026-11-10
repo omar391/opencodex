@@ -148,7 +148,8 @@ is not a prelude: it commits.
   Codex metadata frames) begins client-visible output or a tool/action item, after which the
   target is committed and cross-target replay is forbidden;
 - a `response.failed` terminal arrives first, in which case the terminal is converted back through
-  the ordinary bounded combo-failure classifier and may advance to the next declared target;
+  the ordinary bounded combo-failure classifier and may advance to the next declared target, unless
+  its error explicitly marks `retryable: false` or its code is non-replayable;
 - a zero-output `response.incomplete` with no reason, `adapter_eof`, `missing_terminal_event`,
   `upstream_stall_timeout`, or an empty-output `max_output_tokens` limit follows the same failure path.
   The `max_output_tokens` arm needs the evidence `classifyZeroOutputTokenLimit` requires in

@@ -170,11 +170,15 @@ function retryableZeroOutputTerminal(payload: unknown, context?: object): boolea
     const error = (event.response as { error?: { code?: unknown; retryable?: unknown } } | undefined)?.error
       ?? event.error;
     const code = error?.code;
+    // An explicit non-retryable marker keeps the turn on its target for every code, not only
+    // the required-tool contract: replaying a failed turn the provider marked final risks
+    // repeating work it may already have committed.
+    if (error?.retryable === false) return false;
     // The required-tool guard synthesizes this terminal over output it held back from the client,
     // so held text and reasoning are not evidence of anything sent; it keeps the retryability it
     // carries. Any other output item (a tool call, an action) still commits it.
     if (code === REQUIRED_TOOL_CONTRACT_CODE) {
-      return error?.retryable !== false && (emptyOutput || heldOnlyOutput(target.output, event.output));
+      return emptyOutput || heldOnlyOutput(target.output, event.output);
     }
     if (!emptyOutput) return false;
     return !(typeof code === "string" && NON_REPLAYABLE_FAILED_CODES.has(code));
