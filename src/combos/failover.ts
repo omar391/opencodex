@@ -380,8 +380,114 @@ export function clearComboTargetCooldowns(comboId?: string, targetKeys?: Iterabl
 export type ComboFailureDecision = "hop" | "stop";
 export type ComboFailureCooldownScope = "none" | "target" | "provider";
 
-function normalizedFailureCode(code?: string | null): string {
+function normalizedFailureCode(code?: string | number | null): string {
+  if (typeof code === "number") return Number.isFinite(code) ? String(code) : "";
   return code?.trim().toLowerCase().replaceAll("-", "_") ?? "";
+}
+
+/** Parse one bounded error record from an HTTP 400 body or a single SSE data frame. */
+export function http400ErrorRecord(message: string): Record<string, unknown> | undefined {
+  if (message.length > 16_384) return undefined;
+  let text = message.trim();
+  if (text.startsWith("Provider error 400: ")) text = text.slice("Provider error 400: ".length).trim();
+  if (text.startsWith("data:") && !text.includes("\n")) text = text.slice("data:".length).trim();
+  try {
+    const payload: unknown = JSON.parse(text);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+    const root = payload as Record<string, unknown>;
+    const nested = root.response && typeof root.response === "object" && !Array.isArray(root.response)
+      ? (root.response as Record<string, unknown>).error
+      : undefined;
+    const error = root.error ?? nested;
+    if (error !== null && typeof error === "object" && !Array.isArray(error)) {
+      const record = { ...(error as Record<string, unknown>) };
+      if (typeof record.detail !== "string" && typeof root.detail === "string") {
+        record.detail = root.detail;
+      }
+      return record;
+    }
+    if (typeof root.message === "string" || typeof root.detail === "string") {
+      return root;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Check whether a parsed error record or raw diagnostic text represents a malformed response_format. */
+export function isMalformedResponseFormatRecord(record?: Record<string, unknown>, rawText?: string): boolean {
+  const fields = record
+    ? [record.message, record.detail].filter((value): value is string => typeof value === "string")
+    : [];
+  if (rawText) fields.push(rawText);
+  return fields.some(detail =>
+    /\binvalid schema(?: for)? response_format\b/i.test(detail)
+    || /\bresponse_format(?:\.[a-z_]+)*\s+must be (?:one of|valid|a valid)\b/i.test(detail));
+}
+
+/** Identify known malformed structured-output diagnostics that must remain terminal. */
+export function isMalformedResponseFormatRequest(status: number, message: string): boolean {
+  if (status !== 400) return false;
+  return isMalformedResponseFormatRecord(http400ErrorRecord(message), message);
+}
+
+/** Check whether a parsed error record matches OpenRouter's uncoded numeric-400 opaque wrapper. */
+export function isOpenRouterOpaque400Record(record?: Record<string, unknown>): boolean {
+  if (!record) return false;
+  const metadata = record.metadata;
+  const errorType = record.type === "error" ? undefined : record.type;
+  return record.message === "Provider returned error"
+    && (record.code === 400 || record.code === "400")
+    && errorType === undefined
+    && metadata !== null && typeof metadata === "object" && !Array.isArray(metadata)
+    && (metadata as Record<string, unknown>).raw === "ERROR";
+}
+
+/** Recognize OpenRouter's uncoded numeric-400 wrapper for an opaque provider failure. */
+export function isOpenRouterOpaque400Envelope(message: string): boolean {
+  return isOpenRouterOpaque400Record(http400ErrorRecord(message)) && !http400RootIsTyped(message);
+}
+
+/**
+ * A typed or coded root (`{"type":"invalid_request_error","error":{...}}`,
+ * `{"code":"context_length_exceeded","error":{...}}`) names its own verdict even when the nested record
+ * looks opaque; the SSE path already refuses those shapes through the frame's own type and code.
+ */
+function http400RootIsTyped(message: string): boolean {
+  let text = message.trim();
+  if (text.startsWith("Provider error 400: ")) text = text.slice("Provider error 400: ".length).trim();
+  if (text.startsWith("data:") && !text.includes("\n")) text = text.slice("data:".length).trim();
+  try {
+    const root: unknown = JSON.parse(text);
+    if (!root || typeof root !== "object" || Array.isArray(root)) return false;
+    const { type, code } = root as Record<string, unknown>;
+    if (type !== undefined && type !== null && type !== "error") return true;
+    return code !== undefined && code !== null && normalizedFailureCode(code as string | number) !== "400";
+  } catch {
+    return false;
+  }
+}
+
+/** Check whether an uncoded numeric 400 is an opaque OpenRouter failure that may safely advance without cooling. */
+function isUncodedUpstream400(
+  status: number,
+  message: string,
+  code?: string | number | null,
+  options?: {
+    malformedResponseFormat?: boolean;
+    openRouterOpaque400?: boolean;
+  },
+): boolean {
+  const normalized = normalizedFailureCode(code);
+  if (status !== 400 || (normalized !== "" && normalized !== "400")) return false;
+  const malformed = options?.malformedResponseFormat !== undefined
+    ? options.malformedResponseFormat
+    : isMalformedResponseFormatRequest(status, message);
+  if (malformed) return false;
+  return options?.openRouterOpaque400 !== undefined
+    ? options.openRouterOpaque400
+    : isOpenRouterOpaque400Envelope(message);
 }
 
 /**
@@ -987,13 +1093,19 @@ export function isProviderModerationRefusal(
   return namesModerationRefusal(text);
 }
 
+/** Return the narrowest cooldown scope supported by this target's failure evidence. */
 export function comboFailureCooldownScope(
   status: number,
   message: string,
-  options?: { code?: string | null },
+  options?: {
+    code?: string | number | null;
+    malformedResponseFormat?: boolean;
+    openRouterOpaque400?: boolean;
+  },
 ): ComboFailureCooldownScope {
-  const code = normalizedFailureCode(options?.code);
-  if (isAnthropicBillingFailure(status, message, options?.code)) return "provider";
+  const rawCode = typeof options?.code === "number" ? String(options.code) : options?.code;
+  const code = normalizedFailureCode(rawCode);
+  if (isAnthropicBillingFailure(status, message, rawCode)) return "provider";
   // Request-shape refusals first: an oversized request must not cool a healthy target.
   // A native transport can surface a zero-output model overflow as a generic
   // upstream_server_error carrying precise context-window prose, so consult the bounded
@@ -1001,20 +1113,24 @@ export function comboFailureCooldownScope(
   if (
     status === 413
     || REQUEST_SHAPE_FAILURE_CODES.has(code)
-    || isRequestLocalFreePromptCap(status, message, options?.code)
-    || isProviderTargetContextOverflow(status, message, options?.code)
+    || isRequestLocalFreePromptCap(status, message, rawCode)
+    || isProviderTargetContextOverflow(status, message, rawCode)
     || isDefiniteContextOverflow(status, message)
-    || isRequestLocalTargetIncompatibility(status, message, options?.code)
+    || isRequestLocalTargetIncompatibility(status, message, rawCode)
     // A capability gap says the target is healthy and the request did not fit it, which is the
     // same reason every other entry here refuses to cool a target.
-    || isResponseFormatCapabilityRefusal(status, message, options?.code)
-    || isProviderModerationRefusal(status, message, options?.code)
+    || isResponseFormatCapabilityRefusal(status, message, rawCode)
+    || isProviderModerationRefusal(status, message, rawCode)
   ) return "none";
-  if (isProviderScopedQuotaCap(status, message, options?.code)) return "provider";
+  if (isProviderScopedQuotaCap(status, message, rawCode)) return "provider";
   // A rejected or unpaid credential is provider-wide evidence: every target that routes
   // through the same provider row carries the same key and will fail identically.
   if (status === 401 || status === 402 || status === 403) return "provider";
   if (PROVIDER_SCOPED_FAILURE_CODES.has(code)) return "provider";
+  // OpenRouter's opaque numeric-code wrapper may be target-specific (for example a gateway
+  // rejecting a model's translated payload). It may advance the combo, but says nothing about
+  // target health and must not quarantine the target.
+  if (isUncodedUpstream400(status, message, rawCode, options)) return "none";
   return "target";
 }
 
@@ -1127,15 +1243,18 @@ export function codexAccountModelRefusal(
   return codexAccountModelRefusalPayload(status, payload);
 }
 
+/** Decide whether a zero-output combo failure can move to another eligible target. */
 export function comboFailureDecision(
   status: number,
   message: string,
   options?: {
-    code?: string | null;
+    code?: string | number | null;
     codexModelRefusal?: CodexAccountModelRefusal;
     failedAdapter?: string;
     /** The caller proved the failure is an adapter-normalized plan refusal (`isModelNotInPlanRefusal`). */
     verifiedPlanRefusal?: boolean;
+    malformedResponseFormat?: boolean;
+    openRouterOpaque400?: boolean;
   },
 ): ComboFailureDecision {
   if (status === 499) return "stop";
@@ -1143,15 +1262,15 @@ export function comboFailureDecision(
   // Structured form of the same hard refusal. The prose test above misses it when the origin
   // reports the code out of band, and every hop rule below -- including the context-overflow
   // one -- must stay subordinate to it.
-  const normalizedCode = normalizedFailureCode(options?.code);
-  if (normalizedCode === "origin_rejected") return "stop";
+  const rawCode = typeof options?.code === "number" ? String(options.code) : options?.code;
+  if (normalizedFailureCode(rawCode) === "origin_rejected") return "stop";
   // The origin may already be executing this turn (the Codex WebSocket relay sent the create
   // frame and never saw a response event). Hopping would send the same request to a second
   // target while the first may still be generating; the honest status goes to the client.
-  if (isNonReplayableUpstreamCode(normalizedCode)) return "stop";
+  if (isNonReplayableUpstreamCode(rawCode)) return "stop";
   // Cyber policy is a hard non-retryable refusal — honor structured code even when
   // classificationText was truncated before the JSON code field.
-  if (isCyberPolicyCode(normalizedCode)) return "stop";
+  if (isCyberPolicyCode(rawCode)) return "stop";
   // HTTP consumers retain hard codes before truncation; SSE metadata owns its selected carrier.
   if (options?.codexModelRefusal === undefined && codexAccountModelRefusalHardStopCode(status, message)) return "stop";
   const modelRefusal = status === 400
@@ -1162,13 +1281,13 @@ export function comboFailureDecision(
   // however: another provider/model in the declared combo can still serve the request.
   // Require structured lifecycle code or explicit model+lifecycle prose so unrelated
   // application-level 410 responses remain fail-closed.
-  if (isModelLifecycleGone(status, message, options?.code)) return "hop";
+  if (isModelLifecycleGone(status, message, rawCode)) return "hop";
   const error = classifyError(status, "upstream_error", message);
   if (isCyberPolicyCode(error.code)) return "stop";
   // A provider can expose its own target hard cap with a non-semantic vendor code
   // (for example 5059 + invalid_request_prompt_too_long). That is evidence that this
   // target is too small, not that every later combo target is incapable of serving it.
-  if (isProviderTargetContextOverflow(status, message, options?.code)) return "hop";
+  if (isProviderTargetContextOverflow(status, message, rawCode)) return "hop";
   // A definite context-window refusal is target-local inside a heterogeneous combo: this model
   // cannot hold the turn, but a later target may have a larger window. Two boundaries keep this
   // safe. It is reached only after cancellation, structured origin/cyber refusals and
@@ -1195,16 +1314,16 @@ export function comboFailureDecision(
   // an upstream already controls other hop signals (429, 5xx), and traversal is finite: policy
   // tries each candidate once via `tried`, and combo excludes each attempted target. So this is
   // structured-code-only, not provably local.
-  if (options?.code === "input_admission_refused" || error.code === "input_admission_refused") {
+  if (rawCode === "input_admission_refused" || error.code === "input_admission_refused") {
     return "hop";
   }
-  if (isProviderScopedQuotaCap(status, message, options?.code || error.code)) {
+  if (isProviderScopedQuotaCap(status, message, rawCode || error.code)) {
     return "hop";
   }
   // A model-scoped rejection is target-local: this provider does not serve THIS model, which
   // says nothing about the next combo target. Structured code only, plus the explicit prose
   // form upstreams emit when they carry no code, so an unrelated 400 stays terminal.
-  const failureCode = normalizedFailureCode(options?.code || error.code);
+  const failureCode = normalizedFailureCode(rawCode || error.code);
   // The input-modality refusal is the same kind of verdict: this route cannot read the turn's
   // media, and a later target may. Its 400 would otherwise end the chain as invalid_request_error.
   if (["model_not_found", "model_unavailable", "unsupported_model", "unsupported_input_modality"].includes(failureCode)) {
@@ -1218,14 +1337,14 @@ export function comboFailureDecision(
   // `free_rate_limited` no longer routes through `isProviderScopedQuotaCap` (it is a
   // per-request cap, not provider-wide evidence), so keep its hop verdict explicit here.
   if (failureCode === "free_rate_limited") return "hop";
-  if (isRequestLocalTargetIncompatibility(status, message, options?.code)) return "hop";
+  if (isRequestLocalTargetIncompatibility(status, message, rawCode)) return "hop";
   // Must precede the generic `invalid_request_error` stop below, which is where this refusal
   // ended the chain: the gateway reports `type: "invalid_request_error"`, so the classifier
   // reaches that list and returns terminal before anything can ask whether the next target
   // could have served the request (#4903).
-  if (isResponseFormatCapabilityRefusal(status, message, options?.code)) return "hop";
-  if (isProviderModerationRefusal(status, message, options?.code)) return "hop";
-  if (isAnthropicBillingFailure(status, message, options?.code)) return "hop";
+  if (isResponseFormatCapabilityRefusal(status, message, rawCode)) return "hop";
+  if (isProviderModerationRefusal(status, message, rawCode)) return "hop";
+  if (isAnthropicBillingFailure(status, message, rawCode)) return "hop";
   // Kiro's body validator rejects the request for the identity it was routed under. The account
   // layer rotates logins first; this is the no-alternate case, so the next combo target is the
   // only remaining chance to serve the turn. Only a caller that knows the failed target is a Kiro
@@ -1235,7 +1354,11 @@ export function comboFailureDecision(
   // A structured account-window exhaustion code is provider-state evidence even inside a
   // 400 / invalid_request_error envelope, so it must precede that stop. Exhaustion prose alone
   // never reaches this arm: a validation error can quote quota wording back (#7625).
-  if (hasAccountExhaustionCode(options?.code)) return "hop";
+  if (hasAccountExhaustionCode(rawCode)) return "hop";
+  // OpenRouter can wrap an opaque provider failure as a numeric 400 with `metadata.raw: "ERROR"`
+  // and no type. Let a heterogeneous combo try another target in this case, while keeping
+  // malformed response_format diagnostics terminal and preserving any structured code.
+  if (isUncodedUpstream400(status, message, rawCode, options)) return "hop";
   if (["origin_rejected", "context_length_exceeded", "invalid_request_error"].includes(error.code ?? "")) {
     return "stop";
   }

@@ -1,4 +1,11 @@
-import { codexAccountModelRefusal, codexAccountModelRefusalPayload, hasConflictingCodexModelRefusalEnvelopes, type CodexAccountModelRefusal } from "../../combos/failover";
+import {
+  codexAccountModelRefusal,
+  codexAccountModelRefusalPayload,
+  hasConflictingCodexModelRefusalEnvelopes,
+  isMalformedResponseFormatRecord,
+  isOpenRouterOpaque400Record,
+  type CodexAccountModelRefusal,
+} from "../../combos/failover";
 import type { ResponsesTerminalStatus } from "../../bridge";
 import { comboFailureDecision } from "../../combos";
 import { httpStatusFromTerminalError } from "../../lib/errors";
@@ -76,10 +83,16 @@ function bareErrorStatus(payload: unknown): number | undefined {
         ? Number(value)
         : undefined)
     .find(value => value !== undefined && value >= 400 && value <= 599);
-  const code = typeof error.code === "string"
-    ? error.code
-    : typeof event.code === "string" ? event.code : null;
+  const rawCode = error.code ?? event.code;
+  const code = typeof rawCode === "string"
+    ? rawCode
+    : typeof rawCode === "number" && Number.isFinite(rawCode)
+      ? String(rawCode)
+      : null;
   if (explicitStatus === undefined && code === "invalid_request_error") return 400;
+  if (explicitStatus === undefined && (isOpenRouterOpaque400Record(error) || isOpenRouterOpaque400Record(event))) {
+    return 400;
+  }
   return explicitStatus ?? httpStatusFromTerminalError({
     type: typeof error.type === "string" && error.type !== "error" ? error.type : undefined,
     code,
@@ -119,15 +132,37 @@ function bareErrorIsRetryable(payload: unknown): boolean {
   const error = nested && typeof nested === "object" && !Array.isArray(nested)
     ? nested as Record<string, unknown>
     : event;
-  const code = typeof error.code === "string"
-    ? error.code
-    : typeof event.code === "string" ? event.code : null;
+  const rootRawCode = event.code;
+  const nestedRawCode = nested && typeof nested === "object" && !Array.isArray(nested)
+    ? (nested as Record<string, unknown>).code
+    : undefined;
+  const rootCode = typeof rootRawCode === "string"
+    ? rootRawCode
+    : typeof rootRawCode === "number" && Number.isFinite(rootRawCode)
+      ? String(rootRawCode)
+      : null;
+  const nestedCode = typeof nestedRawCode === "string"
+    ? nestedRawCode
+    : typeof nestedRawCode === "number" && Number.isFinite(nestedRawCode)
+      ? String(nestedRawCode)
+      : null;
   const message = typeof error.message === "string"
     ? error.message
     : typeof event.message === "string" ? event.message : "";
-  return comboFailureDecision(status, message, {
+  const rawRecord = {
+    ...((nested && typeof nested === "object" && !Array.isArray(nested) ? nested : event) as Record<string, unknown>),
+    ...(typeof event.detail === "string" ? { detail: event.detail } : {}),
+  };
+  const malformedResponseFormat = status === 400 ? isMalformedResponseFormatRecord(rawRecord, message) : undefined;
+  const openRouterOpaque400 = status === 400 ? isOpenRouterOpaque400Record(rawRecord) : undefined;
+  const hops = (code: string | null): boolean => comboFailureDecision(status, message, {
     code, codexModelRefusal: terminalModelRefusal(status, event),
+    malformedResponseFormat, openRouterOpaque400,
   }) === "hop";
+  // Conflicting root and nested codes may hop only when each would hop on its own, so a root hard
+  // stop is never hidden behind a retryable nested code (and a retryable pair keeps dev's hop).
+  if (rootCode !== null && nestedCode !== null && rootCode !== nestedCode) return hops(rootCode) && hops(nestedCode);
+  return hops(nestedCode ?? rootCode);
 }
 
 function retryableZeroOutputTerminal(payload: unknown): boolean {
@@ -251,6 +286,12 @@ function failedTerminalResponse(
     ? nestedError as Record<string, unknown>
     : topLevelError && typeof topLevelError === "object" && !Array.isArray(topLevelError)
       ? topLevelError as Record<string, unknown>
+    : isOpenRouterOpaque400Record(terminalPayload)
+      ? {
+        message: terminalPayload.message,
+        code: terminalPayload.code,
+        metadata: terminalPayload.metadata,
+      }
     : {
       // A caller-validated flat error can carry its identity beside type:error.
       // Retain it when that caller established a 400, rather than discarding the
@@ -258,7 +299,11 @@ function failedTerminalResponse(
       type: terminalPayload.type === "error" && logCtx.terminalHttpStatus === 400
         ? "invalid_request_error" : "upstream_error",
       code: terminalPayload.type === "error" && logCtx.terminalHttpStatus === 400
-        ? (typeof terminalPayload.code === "string" ? terminalPayload.code : null) : "upstream_server_error",
+        ? (typeof terminalPayload.code === "string"
+            ? terminalPayload.code
+            : typeof terminalPayload.code === "number" && Number.isFinite(terminalPayload.code)
+              ? String(terminalPayload.code)
+              : null) : "upstream_server_error",
       message: typeof terminalPayload.message === "string"
         ? terminalPayload.message
         : logCtx.upstreamError ?? "Provider stream failed before producing output",
@@ -270,6 +315,7 @@ function failedTerminalResponse(
   const usage = terminalResponse.usage;
   return new Response(JSON.stringify({
     error,
+    ...(typeof terminalPayload.detail === "string" ? { detail: terminalPayload.detail } : {}),
     // The combo classifier needs only the error and optional usage. Do not carry
     // response ids, provider metadata, or future terminal fields into the client
     // error envelope merely because they shared the terminal snapshot.
