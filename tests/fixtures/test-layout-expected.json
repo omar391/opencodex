@@ -1643,5 +1643,6 @@
   "link-ephemeral-child-discovery.test.ts": "clients",
   "link-enrollment-ephemeral-child.test.ts": "server",
   "link-ocx-child-e2e.test.ts": "clients",
-  "link-child-plant-foundations.test.ts": "clients"
+  "link-child-plant-foundations.test.ts": "clients",
+  "acp-adapter.test.ts": "adapters"
 }
