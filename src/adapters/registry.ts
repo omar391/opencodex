@@ -18,6 +18,7 @@ import { createOpenAIChatAdapter } from "./openai-chat";
 import { createOllamaNativeAdapter } from "./ollama-native";
 import { createResponsesPassthroughAdapter } from "./openai-responses";
 import { createZedAdapter } from "./zed";
+import { createAcpAdapter } from "./acp/adapter";
 import type { OcxProviderConfig } from "../types";
 import { createAdapterTierMetadata } from "../providers/fastwire";
 import { withInputMediaGuard } from "./input-media-guard";
@@ -49,7 +50,8 @@ export type AdapterWire =
   | "kiro"
   | "cursor"
   | "devin"
-  | "zed";
+  | "zed"
+  | "acp";
 
 export type AdapterMutationContract =
   | "codex-owned"
@@ -163,6 +165,14 @@ export const ADAPTER_REGISTRY = {
   "dsh-account": {
     contractParent: "anthropic",
     create: (provider: OcxProviderConfig, context: AdapterFactoryContext) => createDshAccountAdapter(provider, context),
+  },
+  acp: {
+    // Agent-delegation wire: the agent runs its own harness and tools; the
+    // client harness is intentionally not forwarded. Which agent a provider id
+    // serves is resolved from the ACP profile registry, not the wire.
+    wire: "acp",
+    mutation: "codex-owned",
+    create: (provider: OcxProviderConfig, context: AdapterFactoryContext) => createAcpAdapter(provider, context),
   },
 } as const satisfies Record<string, AdapterDefinition>;
 

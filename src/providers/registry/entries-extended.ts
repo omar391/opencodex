@@ -1709,4 +1709,81 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     defaultMaxOutputTokens: ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS,
     note: "Runs Claude subscription traffic through Anthropic's own harness: the official Claude Code CLI headlessly (`claude -p`), one turn per request. OpenCodex stores no Claude token and injects none into CLI requests (quota admission only reads it in memory) — the CLI signs in and bills the account itself, which is why this row is keyless and an API key saved here never reaches the harness (use `anthropic-apikey` for key billing). The sign-in is the one of the user this proxy runs as, so every request served through this row — by any client of this proxy — spends that same account; OpenCodex neither pools nor multiplexes Claude sign-ins. Requires the CLI (`npm i -g @anthropic-ai/claude-code`) and a signed-in session (`claude` -> /login). v1 disables CLI tools (--tools \"\", --strict-mcp-config) so the client retains tool ownership; text, reasoning and native image input are supported. Subscription routing authorization flagged for maintainer review.",
   },
+  {
+    // Devin the AGENT over Agent Client Protocol, distinct from the `devin`
+    // cloud adapter which is Devin-the-model (plain Connect-RPC inference).
+    // This row drives `devin acp` — the same agent loop the Devin REPL runs,
+    // with its own harness, tools and workspace — so the turn answers the
+    // user's request, not the client's system prompt or tool catalog. Those
+    // are intentionally not forwarded. The agent owns its sign-in via
+    // `devin auth login`; no credential is stored here. Sessions persist in
+    // the CLI's own store and are resumed per conversation through
+    // providerState. `devin` remains the right row for model inference; this
+    // row is for delegating agent turns.
+    // GOVERNANCE: same flagged question as claude-cli — a subscription sign-in
+    // driven by a proxy for a third-party agent is the vendor's call.
+    id: "devin-acp",
+    label: "Devin CLI (ACP agent)",
+    adapter: "acp",
+    // Identity URL only: ACP transport is stdio, nothing connects here.
+    // Must be http(s) for provider config validation; the profile's
+    // canonicalBaseUrl fails the turn closed if this is overridden.
+    baseUrl: "https://cli.devin.ai",
+    authKind: "key",
+    keyOptional: true,
+    preserveCustomDestination: true,
+    dashboardUrl: "https://docs.devin.ai",
+    defaultModel: "swe-2-high",
+    // Static roster seeded from the agent's session/new configOptions. The
+    // wire id is passed to `devin acp --model`; the agent's live catalog is
+    // authoritative and unknown ids are refused by the CLI, not by us.
+    models: [
+      "adaptive",
+      "swe-2-high",
+      "swe-2-flash-medium",
+      "claude-fable-5-2-medium",
+      "claude-fable-5-1-medium",
+      "claude-opus-5-5-medium",
+      "claude-opus-5-medium",
+      "claude-opus-4-8-medium",
+      "claude-sonnet-5-5-medium",
+      "claude-sonnet-5-medium",
+      "claude-haiku-5-5-medium",
+      "gpt-6-astra-medium",
+      "gpt-6-sol-medium",
+      "gpt-6-luna-medium",
+      "gemini-4-argon-medium",
+      "gemini-3-8-flash-medium",
+      "gemini-3-5-flash-medium",
+      "kimi-k3-1-pro-max",
+      "glm-5-2",
+      "glm-5-2-1m",
+      "glm-5-3-max",
+    ],
+    liveModels: false,
+    modelInputModalities: {
+      adaptive: ["text", "image"],
+      "swe-2-high": ["text", "image"],
+      "swe-2-flash-medium": ["text"],
+      "claude-fable-5-2-medium": ["text", "image"],
+      "claude-fable-5-1-medium": ["text", "image"],
+      "claude-opus-5-5-medium": ["text", "image"],
+      "claude-opus-5-medium": ["text", "image"],
+      "claude-opus-4-8-medium": ["text", "image"],
+      "claude-sonnet-5-5-medium": ["text", "image"],
+      "claude-sonnet-5-medium": ["text", "image"],
+      "claude-haiku-5-5-medium": ["text", "image"],
+      "gpt-6-astra-medium": ["text", "image"],
+      "gpt-6-sol-medium": ["text", "image"],
+      "gpt-6-luna-medium": ["text", "image"],
+      "gemini-4-argon-medium": ["text", "image"],
+      "gemini-3-8-flash-medium": ["text", "image"],
+      "gemini-3-5-flash-medium": ["text", "image"],
+      "kimi-k3-1-pro-max": ["text", "image"],
+      "glm-5-2": ["text"],
+      "glm-5-2-1m": ["text"],
+      "glm-5-3-max": ["text"],
+    },
+    note: "Devin as an AGENT over the Agent Client Protocol (`devin acp`, newline-delimited JSON-RPC on stdio) — not a model endpoint. The turn runs Devin's own harness: its system prompt, its tools, its workspace cwd, its session memory (resumed via session/load across requests). The client's system prompt, tool catalog and developer context are intentionally NOT forwarded; the agent answers the user's request under its own rules. Tool activity is progress narration, never client tool calls. Mode and permissions follow the agent's session mode (default accept-edits); session/request_permission is cancelled unless OPENCODEX_ACP_ALLOW_TOOLS=1 opts in. Requires the Devin CLI (`brew install --cask devin-cli` or the install script) and `devin auth login`; no credential is stored by opencodex. Subscription routing authorization flagged for maintainer review, same as claude-cli.",
+  },
 ];
