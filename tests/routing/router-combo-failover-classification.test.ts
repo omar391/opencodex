@@ -15,6 +15,7 @@ import {
   isMalformedResponseFormatRequest,
   isOpenRouterOpaque400Envelope,
   isProviderModerationRefusal,
+  isResponsesContractRefusal,
 } from "../../src/combos/failover";
 import { consumeComboFailure } from "../../src/server/responses/core-combo-failure";
 import { normalizeUpstreamErrorText } from "../../src/server/responses/core-errors";
@@ -1518,4 +1519,51 @@ describe("provider moderation refusal", () => {
     }
   });
 });
+
+describe("Responses contract capability refusal", () => {
+  test("hops without cooling on observed double-wrapped Responses contract error", () => {
+    const errorText = 'Provider error 400: {"error":{"message":"Provider error 400: The request does not match the supported Responses contract.","type":"upstream_error","code":null}}';
+    expect(isResponsesContractRefusal(400, errorText)).toBe(true);
+    expect(comboFailureDecision(400, errorText)).toBe("hop");
+    expect(comboFailureCooldownScope(400, errorText)).toBe("none");
+  });
+
+  test("hops on inner JSON Responses contract error", () => {
+    const errorText = '{"error":{"message":"The request does not match the supported Responses contract.","type":"upstream_error","code":null}}';
+    expect(isResponsesContractRefusal(400, errorText)).toBe(true);
+    expect(comboFailureDecision(400, errorText)).toBe("hop");
+    expect(comboFailureCooldownScope(400, errorText)).toBe("none");
+  });
+
+  test("hops on single-line SSE Responses contract error", () => {
+    const errorText = 'data: {"error":{"message":"The request does not match the supported Responses contract."}}';
+    expect(isResponsesContractRefusal(400, errorText)).toBe(true);
+    expect(comboFailureDecision(400, errorText)).toBe("hop");
+    expect(comboFailureCooldownScope(400, errorText)).toBe("none");
+  });
+
+  test("hops on plain text Responses contract refusal", () => {
+    const errorText = "The request does not match the supported Responses contract.";
+    expect(isResponsesContractRefusal(400, errorText)).toBe(true);
+    expect(comboFailureDecision(400, errorText)).toBe("hop");
+    expect(comboFailureCooldownScope(400, errorText)).toBe("none");
+  });
+
+  test("hard stops like origin_rejected and cyber_policy outrank Responses contract refusal", () => {
+    const errorText = 'Provider error 400: {"error":{"message":"The request does not match the supported Responses contract.","type":"upstream_error","code":"origin_rejected"}}';
+    expect(isResponsesContractRefusal(400, errorText, "origin_rejected")).toBe(false);
+    expect(comboFailureDecision(400, errorText, { code: "origin_rejected" })).toBe("stop");
+
+    const cyberText = 'Provider error 400: {"error":{"message":"The request does not match the supported Responses contract.","type":"upstream_error","code":"cyber_policy"}}';
+    expect(isResponsesContractRefusal(400, cyberText, "cyber_policy")).toBe(false);
+    expect(comboFailureDecision(400, cyberText, { code: "cyber_policy" })).toBe("stop");
+  });
+
+  test("reflected validation text quoting contract phrase stays terminal", () => {
+    const reflected = 'Invalid parameter: prompt text cannot contain "The request does not match the supported Responses contract."';
+    expect(isResponsesContractRefusal(400, reflected)).toBe(false);
+    expect(comboFailureDecision(400, reflected)).toBe("stop");
+  });
+});
+
 

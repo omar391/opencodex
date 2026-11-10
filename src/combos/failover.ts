@@ -1115,6 +1115,73 @@ function isOpaqueEncryptedContentRefusal(status: number, message: string, code?:
   return false;
 }
 
+/**
+ * An upstream refusal stating the request does not match the target's supported Responses contract
+ * is target-local in a heterogeneous combo: this target cannot serve this Responses request,
+ * but another target in the combo may.
+ *
+ * It must precede the generic invalid_request_error stop.
+ */
+export function isResponsesContractRefusal(
+  status: number,
+  message: string,
+  code?: string | null,
+): boolean {
+  if (status !== 400 && status !== 422) return false;
+  const normalizedCode = normalizedFailureCode(code);
+  if (
+    isCyberPolicyCode(normalizedCode)
+    || isNonReplayableUpstreamCode(normalizedCode)
+    || normalizedCode === "origin_rejected"
+  ) {
+    return false;
+  }
+  if (!message || message.length > 32_768) return false;
+
+  let text = message.trim();
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (text.startsWith("Provider error 400: ") || text.startsWith("Provider error 422: ")) {
+      text = text.slice(text.indexOf(": ") + 2).trim();
+    }
+    if (text.startsWith("data:") && !text.includes("\n")) {
+      text = text.slice("data:".length).trim();
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      break;
+    }
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) break;
+    const rec = payload as Record<string, unknown>;
+    const error = rec.error ?? rec;
+    if (!error || typeof error !== "object" || Array.isArray(error)) break;
+    const e = error as Record<string, unknown>;
+    if (typeof e.message === "string") {
+      const msgTrimmed = e.message.trim();
+      if (msgTrimmed.startsWith("Provider error 400: ") || msgTrimmed.startsWith("Provider error 422: ") || msgTrimmed.startsWith("{")) {
+        text = msgTrimmed;
+        continue;
+      }
+      text = msgTrimmed;
+      break;
+    }
+    break;
+  }
+
+  if (isCyberPolicyMessage(text) || text.toLowerCase().includes("origin_rejected")) {
+    return false;
+  }
+  if (isReflectedValidationText(text)) {
+    return false;
+  }
+
+  const lower = text.toLowerCase();
+  return lower.includes("does not match the supported responses contract")
+    || lower.includes("doesn't match the supported responses contract")
+    || lower.includes("not match the supported responses contract");
+}
+
 /** Return the narrowest cooldown scope supported by this target's failure evidence. */
 export function comboFailureCooldownScope(
   status: number,
@@ -1144,6 +1211,7 @@ export function comboFailureCooldownScope(
     || isResponseFormatCapabilityRefusal(status, message, rawCode)
     || isProviderModerationRefusal(status, message, rawCode)
     || isOpaqueEncryptedContentRefusal(status, message, rawCode)
+    || isResponsesContractRefusal(status, message, rawCode)
   ) return "none";
   if (isProviderScopedQuotaCap(status, message, rawCode)) return "provider";
   // A rejected or unpaid credential is provider-wide evidence: every target that routes
@@ -1369,6 +1437,7 @@ export function comboFailureDecision(
   if (isProviderModerationRefusal(status, message, rawCode)) return "hop";
   if (isAnthropicBillingFailure(status, message, rawCode)) return "hop";
   if (isOpaqueEncryptedContentRefusal(status, message, rawCode)) return "hop";
+  if (isResponsesContractRefusal(status, message, rawCode)) return "hop";
   // Kiro's body validator rejects the request for the identity it was routed under. The account
   // layer rotates logins first; this is the no-alternate case, so the next combo target is the
   // only remaining chance to serve the turn. Only a caller that knows the failed target is a Kiro
