@@ -1,5 +1,5 @@
 import { parseResetCooldownMs } from "../codex/routing";
-import { classifyError, isCyberPolicyCode } from "../lib/errors";
+import { classifyError, isCyberPolicyCode, isCyberPolicyMessage } from "../lib/errors";
 import { isHardPolicyOrOriginRefusal } from "../lib/hard-refusal";
 import { isNonReplayableUpstreamCode } from "../lib/upstream-retry";
 import { isAnthropicBillingFailure } from "../providers/anthropic-billing-refusal";
@@ -811,6 +811,182 @@ function isResponseFormatCapabilityRefusal(
   return false;
 }
 
+function isAllowedModerationParam(param: string): boolean {
+  const p = param.trim().toLowerCase();
+  return (
+    p === "prompt"
+    || p === "input"
+    || p === "messages"
+    || p.startsWith("input[")
+    || p.startsWith("input.")
+    || p.startsWith("messages[")
+    || p.startsWith("messages.")
+  );
+}
+
+function isReflectedValidationText(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    lower.includes("cannot contain")
+    || lower.includes("quotes '")
+    || lower.includes("quotes \"")
+    || /quotes\s+['"]/i.test(text)
+    || /text cannot contain/i.test(text)
+    || /is not supported for (?:field|parameter)\b/i.test(text)
+    || /invalid (?:parameter|value) '.*?'/i.test(text)
+  );
+}
+
+function namesModerationRefusal(text: string): boolean {
+  if (isReflectedValidationText(text)) return false;
+  const lower = text.toLowerCase();
+  return (
+    lower.includes("refused by moderation")
+    || lower.includes("blocked by moderation")
+    || lower.includes("flagged by moderation")
+    || lower.includes("content management policy")
+    || (lower.includes("moderation") && lower.includes("categories:"))
+  );
+}
+
+/**
+ * A provider or gateway moderation filter refusal is target-local in a heterogeneous combo:
+ * this model or provider's guardrail refused the prompt, but another target may serve it.
+ *
+ * It must precede the generic invalid_request_error stop.
+ */
+export function isProviderModerationRefusal(
+  status: number,
+  message: string,
+  code?: string | null,
+): boolean {
+  if (status !== 400 && status !== 422) return false;
+  const normalizedCode = normalizedFailureCode(code);
+  if (
+    isCyberPolicyCode(normalizedCode)
+    || isNonReplayableUpstreamCode(normalizedCode)
+    || normalizedCode === "origin_rejected"
+  ) {
+    return false;
+  }
+  if (!message) {
+    return normalizedCode === "moderation_refusal" || normalizedCode === "content_filter";
+  }
+  if (message.length > 32_768) return false;
+
+  let text = message.trim();
+  let wasParsed = false;
+  let moderationCodeSeen = normalizedCode === "moderation_refusal" || normalizedCode === "content_filter";
+
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (text.startsWith("Provider error 400: ") || text.startsWith("Provider error 422: ")) {
+      text = text.slice(text.indexOf(": ") + 2).trim();
+    }
+    if (text.startsWith("data:") && !text.includes("\n")) {
+      text = text.slice("data:".length).trim();
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(text);
+      wasParsed = true;
+    } catch {
+      if (text.startsWith("{") || text.startsWith("[") || wasParsed) {
+        if (
+          isCyberPolicyMessage(text)
+          || /["']?(?:upstream_no_response|upstream_closed_before_response|upstream_reset_replay_refused|cyber_policy|origin_rejected)["']?/i.test(text)
+          || isNonReplayableUpstreamCode(normalizedCode)
+          || normalizedCode === "origin_rejected"
+        ) {
+          return false;
+        }
+        // Match authoritative error/response envelope containing message and optionally param.
+        // A dedicated "error": { ... } or "response": { ... } takes precedence over root message.
+        const envelopeMatch = /"(?:error|response)"\s*:\s*\{([^{}]*?"message"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^{}]*)/.exec(text)
+          ?? (!/"(?:error|response)"\s*:\s*\{/.test(text) ? /^\{\s*([^{}]*?"message"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^{}]*)/.exec(text) : null);
+        if (envelopeMatch) {
+          const envelopeContent = envelopeMatch[1];
+          const rawMessage = envelopeMatch[2];
+          const paramMatch = /"param"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/.exec(envelopeContent);
+          if (paramMatch) {
+            try {
+              const extractedParam = JSON.parse(`"${paramMatch[1]}"`) as string;
+              if (!isAllowedModerationParam(extractedParam)) return false;
+            } catch {
+              return false;
+            }
+          }
+          try {
+            const extractedMsg = JSON.parse(`"${rawMessage}"`) as string;
+            if (namesModerationRefusal(extractedMsg)) {
+              return true;
+            }
+          } catch {
+            return false;
+          }
+        }
+        return false;
+      }
+      break;
+    }
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+    const rec = payload as Record<string, unknown>;
+    const error = rec.error ?? rec;
+    if (!error || typeof error !== "object" || Array.isArray(error)) return false;
+    const e = error as Record<string, unknown>;
+
+    const rootCode = normalizedFailureCode(typeof rec.code === "string" ? rec.code : undefined);
+    const errCode = normalizedFailureCode(typeof e.code === "string" ? e.code : undefined);
+    for (const c of [rootCode, errCode]) {
+      if (
+        isCyberPolicyCode(c)
+        || isNonReplayableUpstreamCode(c)
+        || c === "origin_rejected"
+      ) {
+        return false;
+      }
+      if (c === "moderation_refusal" || c === "content_filter") {
+        moderationCodeSeen = true;
+      }
+    }
+
+    const errorObjectModerationCode = errCode === "moderation_refusal" || errCode === "content_filter";
+    if (typeof e.param === "string" && e.param) {
+      if (!isAllowedModerationParam(e.param) && !errorObjectModerationCode) {
+        return false;
+      }
+    }
+
+    if (typeof e.message === "string") {
+      const msgTrimmed = e.message.trim();
+      if (msgTrimmed.startsWith("Provider error 400: ") || msgTrimmed.startsWith("Provider error 422: ") || msgTrimmed.startsWith("{")) {
+        text = msgTrimmed;
+        continue;
+      }
+    }
+
+    if (moderationCodeSeen) return true;
+
+    const candidateTexts: string[] = [];
+    if (typeof e.message === "string") candidateTexts.push(e.message);
+    if (typeof e.error === "string") candidateTexts.push(e.error);
+    if (typeof rec.message === "string") candidateTexts.push(rec.message);
+    if (e.param && typeof e.param === "object" && !Array.isArray(e.param)) {
+      const p = e.param as Record<string, unknown>;
+      if (typeof p.message === "string") candidateTexts.push(p.message);
+      if (typeof p.error === "string") candidateTexts.push(p.error);
+    }
+
+    for (const msg of candidateTexts) {
+      if (namesModerationRefusal(msg)) return true;
+    }
+    return false;
+  }
+
+  if (wasParsed || text.startsWith("{") || text.startsWith("[") || text.startsWith("data:")) return false;
+  if (moderationCodeSeen) return true;
+  return namesModerationRefusal(text);
+}
+
 export function comboFailureCooldownScope(
   status: number,
   message: string,
@@ -832,6 +1008,7 @@ export function comboFailureCooldownScope(
     // A capability gap says the target is healthy and the request did not fit it, which is the
     // same reason every other entry here refuses to cool a target.
     || isResponseFormatCapabilityRefusal(status, message, options?.code)
+    || isProviderModerationRefusal(status, message, options?.code)
   ) return "none";
   if (isProviderScopedQuotaCap(status, message, options?.code)) return "provider";
   // A rejected or unpaid credential is provider-wide evidence: every target that routes
@@ -966,14 +1143,15 @@ export function comboFailureDecision(
   // Structured form of the same hard refusal. The prose test above misses it when the origin
   // reports the code out of band, and every hop rule below -- including the context-overflow
   // one -- must stay subordinate to it.
-  if (normalizedFailureCode(options?.code) === "origin_rejected") return "stop";
+  const normalizedCode = normalizedFailureCode(options?.code);
+  if (normalizedCode === "origin_rejected") return "stop";
   // The origin may already be executing this turn (the Codex WebSocket relay sent the create
   // frame and never saw a response event). Hopping would send the same request to a second
   // target while the first may still be generating; the honest status goes to the client.
-  if (isNonReplayableUpstreamCode(options?.code)) return "stop";
+  if (isNonReplayableUpstreamCode(normalizedCode)) return "stop";
   // Cyber policy is a hard non-retryable refusal — honor structured code even when
   // classificationText was truncated before the JSON code field.
-  if (isCyberPolicyCode(options?.code)) return "stop";
+  if (isCyberPolicyCode(normalizedCode)) return "stop";
   // HTTP consumers retain hard codes before truncation; SSE metadata owns its selected carrier.
   if (options?.codexModelRefusal === undefined && codexAccountModelRefusalHardStopCode(status, message)) return "stop";
   const modelRefusal = status === 400
@@ -1046,6 +1224,7 @@ export function comboFailureDecision(
   // reaches that list and returns terminal before anything can ask whether the next target
   // could have served the request (#4903).
   if (isResponseFormatCapabilityRefusal(status, message, options?.code)) return "hop";
+  if (isProviderModerationRefusal(status, message, options?.code)) return "hop";
   if (isAnthropicBillingFailure(status, message, options?.code)) return "hop";
   // Kiro's body validator rejects the request for the identity it was routed under. The account
   // layer rotates logins first; this is the no-alternate case, so the next combo target is the
