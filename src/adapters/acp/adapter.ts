@@ -56,7 +56,7 @@ export function createAcpAdapter(provider: OcxProviderConfig, context: AdapterFa
         });
         return;
       }
-      const binary = resolveAcpBinary(profile, deps.which);
+      const binary = resolveAcpBinary(profile, deps.which, { home: deps.homeDir });
       if (!binary) {
         emit({
           type: "error",

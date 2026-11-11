@@ -66,6 +66,11 @@ export function sessionSetModeFrame(sessionId: string, modeId: string): Record<s
   return { jsonrpc: "2.0", id: 4, method: "session/set_mode", params: { sessionId, modeId } };
 }
 
+/** ACP v2 config-option frame (id 5); used for model selection where supported. */
+export function sessionSetConfigOptionFrame(sessionId: string, configId: string, value: string): Record<string, unknown> {
+  return { jsonrpc: "2.0", id: 5, method: "session/set_config_option", params: { sessionId, configId, value } };
+}
+
 export function sessionPromptFrame(sessionId: string, prompt: Array<Record<string, unknown>>): Record<string, unknown> {
   return { jsonrpc: "2.0", id: ACP_PROMPT_ID, method: "session/prompt", params: { sessionId, prompt } };
 }

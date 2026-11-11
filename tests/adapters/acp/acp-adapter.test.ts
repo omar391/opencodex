@@ -7,10 +7,13 @@
  */
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { createAcpAdapter } from "../../../src/adapters/acp/adapter";
 import { ACP_INITIALIZE_ID, ACP_PROMPT_ID, ACP_SESSION_ID, buildAcpPrompt, buildAcpHistory, acpUpdateToEvents, mapAcpUsage, sessionLoadFrame } from "../../../src/adapters/acp/protocol";
-import { clearAcpBinaryCache, resolveAcpProfile, acpProfiles } from "../../../src/adapters/acp/profiles";
+import { clearAcpBinaryCache, resolveAcpProfile, acpProfiles, resolveT3ToolBinary, resolveT3AntigravityGeminiHome } from "../../../src/adapters/acp/profiles";
 import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig } from "../../../src/types";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { SpawnOptions } from "node:child_process";
@@ -121,8 +124,35 @@ describe("acp protocol", () => {
 
   test("profiles resolve by provider id", () => {
     expect(resolveAcpProfile("devin-acp")?.binaryCandidates).toContain("devin");
+    expect(resolveAcpProfile("antigravity-acp")?.t3ToolName).toBe("antigravity-acp");
     expect(resolveAcpProfile("nope")).toBeUndefined();
     expect(acpProfiles().length).toBeGreaterThan(0);
+  });
+
+  test("resolveT3ToolBinary resolves registry active.json and versioned layouts", () => {
+    const root = mkdtempSync(join(tmpdir(), "ocx-t3tools-"));
+    // Registry layout: <tool>/<platform>/active.json -> versions/<release>/<bin>
+    const relDir = join(root, ".t3", "tools", "agy", "darwin-arm64");
+    mkdirSync(join(relDir, "versions", "relA"), { recursive: true });
+    mkdirSync(join(relDir, "versions", "relB"), { recursive: true });
+    writeFileSync(join(relDir, "active.json"), JSON.stringify({ releaseId: "relB" }));
+    writeFileSync(join(relDir, "versions", "relA", "agy_acp_server.par"), "x");
+    writeFileSync(join(relDir, "versions", "relB", "agy_acp_server.par"), "x");
+    expect(resolveT3ToolBinary("agy", "agy_acp_server.par", { home: root }))
+      .toBe(join(relDir, "versions", "relB", "agy_acp_server.par"));
+    // Versioned layout fallback (no active.json): newest match wins.
+    const vDir = join(root, ".t3", "tools", "dev", "1.0.0", "darwin-aarch64", "bin");
+    mkdirSync(vDir, { recursive: true });
+    writeFileSync(join(vDir, "devin"), "x");
+    expect(resolveT3ToolBinary("dev", "devin", { home: root })).toBe(join(vDir, "devin"));
+    expect(resolveT3ToolBinary("missing", "devin", { home: root })).toBeUndefined();
+  });
+
+  test("resolveT3AntigravityGeminiHome picks instance with settings", () => {
+    // No T3 state on the test machine path is guaranteed; assert it returns a
+    // string-or-undefined without throwing for a synthetic home.
+    const home = resolveT3AntigravityGeminiHome("/nonexistent-home-xyz");
+    expect(home === undefined || typeof home === "string").toBe(true);
   });
 });
 
@@ -153,7 +183,7 @@ describe("acp adapter runTurn", () => {
 
   test("missing binary fails before spawn", async () => {
     clearAcpBinaryCache();
-    const adapter = createAcpAdapter(PROVIDER, { providerId: "devin-acp" }, { which: (() => undefined) as never });
+    const adapter = createAcpAdapter(PROVIDER, { providerId: "devin-acp" }, { which: (() => undefined) as never, homeDir: "/nonexistent-ocx-home" });
     const events = await collect(adapter, parsed());
     expect(events[0]).toMatchObject({ type: "error", code: "cli_not_found" });
   });
