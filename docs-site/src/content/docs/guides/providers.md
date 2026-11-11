@@ -1878,6 +1878,62 @@ Azure schema compatibility rules remain in effect.
 
 See [Verify a custom remote gateway](/guides/custom-gateway/) for the setup and validation checklist.
 
+## ACP agents
+
+ACP providers are not model endpoints — they delegate each request to a locally installed
+**agent CLI** that speaks the Agent Client Protocol over stdio. The agent owns its own
+harness, system prompt, tools, workspace, permissions, and session memory; opencodex only
+translates the streamed updates into the response your client sees. Codex's own system
+prompt, developer messages, tool catalog, and tool results are **not** forwarded to the
+agent — the request text is all it receives.
+
+Two presets ship in the catalog's **ACP** tab:
+
+| Provider | Agent | Notes |
+| --- | --- | --- |
+| `devin-acp` | Devin CLI (`devin acp`) | Devin's own agent harness and session state |
+| `antigravity-acp` | Antigravity (`agy_acp_server.par`) | Reuses a T3 Code or `~/.gemini` Google sign-in when present |
+
+No API key is involved: the agent CLI owns authentication and billing through its own
+login. Add the provider from the dashboard's ACP tab, or write the row directly:
+
+```json
+{
+  "providers": {
+    "devin-acp": { "adapter": "acp", "baseUrl": "https://cli.devin.ai", "authMode": "key", "keyOptional": true }
+  }
+}
+```
+
+### Agent binary discovery
+
+The adapter locates the agent executable before each turn, in this order:
+
+1. **`acpBinaryPath`** on the provider row (Settings → Agent binary path in the dashboard)
+2. **`OPENCODEX_ACP_DEVIN_BIN`** / **`OPENCODEX_ACP_ANTIGRAVITY_BIN`** environment variables
+3. **PATH** (`devin`, `devin.exe`, `devin.cmd`, …)
+4. **T3 Code's managed tools tree** (`~/.t3/tools/…`) when T3 Code is installed — optional,
+   never required
+
+The Settings tab shows the resolved path and which source won. T3 Code is only a scan
+target: nothing requires it to be installed or to have the provider activated.
+
+### Models and reasoning effort
+
+ACP rosters list base model families (`swe-2-flash`, `claude-opus-5-5`, …). Reasoning
+effort is selected independently, exactly like API providers: the adapter composes the
+agent's wire id (`swe-2-flash` + `high` → `swe-2-flash-high`) and defaults to `medium`
+when no effort is supplied. `adaptive` and already-suffixed ids pass through unchanged.
+
+### Sessions, permissions, and tools
+
+Follow-up turns resume the agent's session through ACP `session/load`, so conversation
+memory persists across requests and even across proxy restarts. Agent tool activity
+streams back as progress narration, not as client tool calls — Codex never executes the
+agent's tools. Agent permission prompts are answered with the agent's own configured
+mode; set `OPENCODEX_ACP_ALLOW_TOOLS=1` to let the agent auto-approve its tool calls
+instead of cancelling permission requests.
+
 ## Approval reviewer per provider
 
 Codex asks a second model to review approval requests, and takes that reviewer from
