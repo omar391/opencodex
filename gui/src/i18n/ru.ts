@@ -2011,6 +2011,7 @@ export const ru: Record<TKey, string> = {
   "pws.acpBinaryPath": "Путь к бинарнику агента",
   "pws.acpBinaryPlaceholder": "Оставьте пустым для автопоиска",
   "pws.acpBinaryHint": "Переопределяет поиск по PATH и управляемым инструментам T3 для этого агента. Оставьте пустым для автопоиска.",
+  "pws.acpBinaryResolved": "Найденный бинарник:",
   "pws.optionalPlaceholder": "Необязательно",
   "pws.providerId": "ID провайдера",
   "pws.reauth": "Нужна переавторизация",

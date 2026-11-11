@@ -3248,6 +3248,7 @@ export const ko: Record<TKey, string> = {
   "pws.acpBinaryPath": "에이전트 바이너리 경로",
   "pws.acpBinaryPlaceholder": "비워 두면 자동 감지",
   "pws.acpBinaryHint": "이 에이전트의 PATH 및 T3 관리 도구 탐지를 재정의합니다. 비워 두면 자동 감지됩니다.",
+  "pws.acpBinaryResolved": "확인된 바이너리:",
   "pws.optionalPlaceholder": "선택사항",
   "pws.providerId": "프로바이더 ID",
   "pws.reauth": "재인증 필요",

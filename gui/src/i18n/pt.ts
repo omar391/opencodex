@@ -2036,6 +2036,7 @@ export const pt: Record<TKey, string> = {
   "pws.acpBinaryPath": "Caminho do binário do agente",
   "pws.acpBinaryPlaceholder": "Deixe vazio para detecção automática",
   "pws.acpBinaryHint": "Substitui a detecção por PATH e ferramentas gerenciadas do T3 para este agente. Deixe vazio para detecção automática.",
+  "pws.acpBinaryResolved": "Binário resolvido:",
   "pws.optionalPlaceholder": "Opcional",
   "pws.providerId": "ID do provedor",
   "pws.reauth": "Requer nova autenticação",

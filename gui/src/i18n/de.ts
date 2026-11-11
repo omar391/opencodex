@@ -3201,6 +3201,7 @@ export const de: Record<TKey, string> = {
   "pws.acpBinaryPath": "Agent-Binärpfad",
   "pws.acpBinaryPlaceholder": "Leer lassen für automatische Erkennung",
   "pws.acpBinaryHint": "Überschreibt PATH- und T3-Tools-Erkennung für diesen Agenten. Leer lassen für automatische Erkennung.",
+  "pws.acpBinaryResolved": "Aufgelöste Binärdatei:",
   "pws.optionalPlaceholder": "Optional",
   "pws.providerId": "Anbieter-ID",
   "pws.reauth": "Erneute Anmeldung erforderlich",

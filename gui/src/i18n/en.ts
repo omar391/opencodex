@@ -2052,6 +2052,7 @@ export const en = {
   "pws.acpBinaryPath": "Agent binary path",
   "pws.acpBinaryPlaceholder": "Leave empty to auto-detect",
   "pws.acpBinaryHint": "Overrides PATH and T3 managed-tools discovery for this agent. Leave empty to auto-detect.",
+  "pws.acpBinaryResolved": "Resolved binary:",
   "pws.optionalPlaceholder": "Optional",
   "pws.providerId": "Provider ID",
   "pws.reauth": "Needs re-auth",

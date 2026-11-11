@@ -123,6 +123,7 @@ function ProviderSettingsForm({
   const [apiKeyTransport, setApiKeyTransport] = useState(initial.draft.apiKeyTransport);
   const [note, setNote] = useState(initial.draft.note);
   const [acpBinaryPath, setAcpBinaryPath] = useState(initial.draft.acpBinaryPath);
+  const [acpBinary, setAcpBinary] = useState<{ path: string; source: string } | null>(null);
   const [allowPrivateNetwork, setAllowPrivateNetwork] = useState(initial.draft.allowPrivateNetwork);
   const [preserveReasoningReplay, setPreserveReasoningReplay] = useState(initial.draft.preserveReasoningReplay);
   const [liveModels, setLiveModels] = useState(initial.draft.liveModels);
@@ -288,6 +289,25 @@ function ProviderSettingsForm({
   const supportsReasoningReplay = !isCatalogProviderId(item.name)
     && canConfigureResponsesReasoningReplay({ adapter, baseUrl, authMode });
   const vertexSettings = isVertexProvider(item) && (item.name === "google-vertex" || adapter.trim() === "google");
+  // ACP rows: show the binary the adapter will actually spawn. The management
+  // API resolves it with the same scan the adapter runs (config > env > PATH > T3).
+  useEffect(() => {
+    if (adapter.trim() !== "acp" || apiBase === undefined) return;
+    const bounded = createBoundedFetch(10_000);
+    let cancelled = false;
+    fetch(`${apiBase}/api/providers`, { signal: bounded.signal })
+      .then(readJsonIfOk)
+      .then((rows: unknown) => {
+        if (cancelled || !Array.isArray(rows)) return;
+        const row = rows.find(candidate =>
+          typeof candidate === "object" && candidate !== null
+          && (candidate as { name?: unknown }).name === item.name) as { acpBinary?: { path: string; source: string } | null } | undefined;
+        setAcpBinary(row?.acpBinary ?? null);
+      })
+      .catch(() => { if (!cancelled) setAcpBinary(null); });
+    return () => { cancelled = true; bounded.clear(); };
+  }, [adapter, apiBase, item.name]);
+
   useEffect(() => { onDirtyChange?.(dirty); return () => onDirtyChange?.(false); }, [dirty, onDirtyChange]);
 
   const modelOptions = useMemo(() => {
@@ -573,6 +593,12 @@ function ProviderSettingsForm({
           <span className="pwi-settings-label">{t("pws.acpBinaryPath")}</span>
           <input className="input" value={acpBinaryPath} onChange={e => setAcpBinaryPath(e.target.value)} placeholder={t("pws.acpBinaryPlaceholder")} />
           <span className="pwi-settings-hint">{t("pws.acpBinaryHint")}</span>
+          {acpBinary?.path && (
+            <span className="pwi-settings-hint">
+              {t("pws.acpBinaryResolved")}{" "}
+              <code className="chip">{acpBinary.path}</code> ({acpBinary.source})
+            </span>
+          )}
         </label>
       )}
       <label className="pwi-settings-field">

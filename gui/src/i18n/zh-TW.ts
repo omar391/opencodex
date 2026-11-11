@@ -1708,6 +1708,7 @@ export const zhTW: Record<TKey, string> = {
   "pws.acpBinaryPath": "代理程式二進位路徑",
   "pws.acpBinaryPlaceholder": "留空以自動偵測",
   "pws.acpBinaryHint": "覆寫此代理的 PATH 和 T3 管理工具偵測。留空以自動偵測。",
+  "pws.acpBinaryResolved": "解析出的二進位檔：",
   "pws.optionalPlaceholder": "可選",
   "pws.providerId": "供應商 ID",
   "pws.reauth": "需要重新認證",

@@ -3221,6 +3221,7 @@ export const zh: Record<TKey, string> = {
   "pws.acpBinaryPath": "代理二进制路径",
   "pws.acpBinaryPlaceholder": "留空以自动检测",
   "pws.acpBinaryHint": "覆盖此代理的 PATH 和 T3 托管工具检测。留空以自动检测。",
+  "pws.acpBinaryResolved": "解析出的二进制：",
   "pws.optionalPlaceholder": "可选",
   "pws.providerId": "提供商 ID",
   "pws.reauth": "需要重新认证",

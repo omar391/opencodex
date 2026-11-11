@@ -2025,6 +2025,7 @@ export const fr: Record<TKey, string> = {
   "pws.acpBinaryPath": "Chemin du binaire agent",
   "pws.acpBinaryPlaceholder": "Laisser vide pour détecter automatiquement",
   "pws.acpBinaryHint": "Remplace la détection PATH et des outils gérés T3 pour cet agent. Laisser vide pour détecter automatiquement.",
+  "pws.acpBinaryResolved": "Binaire résolu :",
   "pws.optionalPlaceholder": "Facultatif",
   "pws.keySelection": "Sélection de clé API",
   "pws.keyActive": "Clé active (comportement existant)",
