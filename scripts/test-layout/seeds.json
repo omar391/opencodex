@@ -57,6 +57,9 @@
         ],
         "openai": [
           "^openai-(?!responses-summary-none\\.test\\.ts$)"
+        ],
+        "acp": [
+          "^acp-"
         ]
       }
     },

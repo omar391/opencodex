@@ -553,11 +553,12 @@ describe("add-provider catalog presets (WP050a)", () => {
     expect(presetTier(preset({ id: "xai", auth: "oauth" }))).toBe("paid");
   });
 
-  test("bucketPresets partitions all four catalog tabs preserving input order", () => {
+  test("bucketPresets partitions all five catalog tabs preserving input order", () => {
     const rows = [
       preset({ id: "venice" }),
       preset({ id: "openai", adapter: "openai-responses", baseUrl: "https://chatgpt.com/backend-api/codex", auth: "forward" }),
       preset({ id: "nvidia", freeTier: true }),
+      preset({ id: "devin-acp", adapter: "acp", baseUrl: "https://cli.devin.ai", keyOptional: true }),
       preset({ id: "groq" }),
       preset({ id: "ollama", auth: "local", baseUrl: "http://localhost:11434/v1" }),
       preset({ id: "vllm", baseUrl: "http://127.0.0.1:8000/v1" }),
@@ -566,10 +567,13 @@ describe("add-provider catalog presets (WP050a)", () => {
     expect(buckets.accounts.map(p => p.id)).toEqual(["openai"]);
     expect(buckets.free.map(p => p.id)).toEqual(["nvidia"]);
     expect(buckets.paid.map(p => p.id)).toEqual(["venice", "groq"]);
+    // ACP rows are keyOptional, so without the dedicated peel they would land in
+    // Free; they get their own tab between Local and Paid instead.
+    expect(buckets.acp.map(p => p.id)).toEqual(["devin-acp"]);
     // The Local tab is a catalog-only split: a loopback base URL alone is enough, and a
     // local row must not also appear under Free even though `presetTier` still calls it free.
     expect(buckets.local.map(p => p.id)).toEqual(["ollama", "vllm"]);
-    expect(presetTier(rows[4]!)).toBe("free");
+    expect(presetTier(rows.find(r => r.id === "ollama")!)).toBe("free");
   });
 
   // A forward guard, not a live case: `isAccountProvider` requires the exact ChatGPT base

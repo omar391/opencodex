@@ -2162,6 +2162,7 @@
 "haiku-5-5-catalog.test.ts": "providers",
 "provider-send-path-import.test.ts": "server",
 "provider-static-model-discovery.test.ts": "providers",
+"provider-acp-agent.test.ts": "gui",
 "provider-subscription-cli.test.ts": "gui",
 "provider-workspace-auth.test.ts": "gui",
 "provider-workspace-data.test.ts": "gui",
@@ -3014,5 +3015,5 @@
 "link-child-plant-foundations.test.ts": "clients",
 "model-discovery-skip-invalid-rows.test.ts": "providers",
 "management-provider-model-discovery.test.ts": "server",
-"acp-adapter.test.ts": "adapters"
+"acp-adapter.test.ts": "adapters/acp"
 }

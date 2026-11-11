@@ -29,5 +29,5 @@
 "claude-chat-tool-dispatch-routes.test.ts": "claude-integration",
 "anthropic-affinity-restart.test.ts": "adapters/anthropic",
 "anthropic-affinity-store.test.ts": "adapters/anthropic",
-"acp/acp-adapter.test.ts": "adapters"
+"acp-adapter.test.ts": "adapters/acp"
 }

@@ -417,6 +417,10 @@ Additional server-domain coverage: `tests/server/advisor-routes.test.ts`.
 
 `fulfill-video.test.ts`, `plan-video.test.ts`, `xai-video-client.test.ts`
 
+#### `tests/adapters/acp/` (1)
+
+`acp-adapter.test.ts`
+
 #### `tests/e2e-style/` (1)
 
 `phase100-native-parity.test.ts`
