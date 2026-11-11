@@ -1498,6 +1498,7 @@ export function comboFailureDecision(
     malformedResponseFormat?: boolean;
     openRouterOpaque400?: boolean;
     unofferedToolCallRefusal?: boolean;
+    rootCode?: string | number | null;
   },
 ): ComboFailureDecision {
   const rootRawCode = typeof options?.rootCode === "number" ? String(options.rootCode) : options?.rootCode;

@@ -9,7 +9,6 @@ import {
   isMalformedResponseFormatRequest,
   isOpenRouterOpaque400Envelope,
   isUnofferedToolCallRefusal,
-  upstreamEnvelopeRootCode,
   type CodexAccountModelRefusal,
 } from "../../combos/failover";
 import { parseRetryAfterMs } from "../../combos";
