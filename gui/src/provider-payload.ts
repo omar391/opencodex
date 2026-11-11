@@ -14,6 +14,7 @@ export interface ProviderPayloadForm {
   googleMode?: "vertex";
   project?: string;
   location?: string;
+  acpBinaryPath?: string;
 }
 
 export interface ProviderPostPreset {
@@ -89,6 +90,7 @@ export interface ProviderPayload {
   project?: string;
   location?: string;
   liveModels?: boolean;
+  acpBinaryPath?: string;
 }
 
 export function buildProviderPayload(form: ProviderPayloadForm): ProviderPayload {
@@ -114,6 +116,9 @@ export function buildProviderPayload(form: ProviderPayloadForm): ProviderPayload
   }
   if (form.adapter.trim() === "anthropic" && form.authMode === "key" && form.apiKeyTransport === "bearer") {
     provider.apiKeyTransport = "bearer";
+  }
+  if (form.adapter.trim() === "acp" && form.acpBinaryPath?.trim()) {
+    provider.acpBinaryPath = form.acpBinaryPath.trim();
   }
   if (form.defaultModel.trim()) {
     provider.defaultModel = form.defaultModel.trim();

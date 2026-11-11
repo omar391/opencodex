@@ -138,6 +138,11 @@ export function AddProviderFormPane({
         <ResponsesReasoningReplayControl checked={form.preserveResponsesReasoningContent === true}
           onChange={checked => onFormChange({ ...form, preserveResponsesReasoningContent: checked })} />
       )}
+      {isAcp && (
+        <AddProviderField label={t("pws.acpBinaryPath")}>
+          <input className="input" value={form.acpBinaryPath ?? ""} onChange={e => onFormChange({ ...form, acpBinaryPath: e.target.value })} placeholder={t("pws.acpBinaryPlaceholder")} />
+        </AddProviderField>
+      )}
       {isAcp ? (
         <div role="note" className="text-label leading-relaxed" style={{ color: "var(--accent, var(--green))", background: "var(--green-soft)", border: "1px solid var(--green)", borderRadius: "var(--radius-sm)", padding: "10px 12px" }}>
           {t("modal.acpAgentHint")}
