@@ -6,6 +6,7 @@
  * request. Codex retains no tool ownership here: the agent executes its own
  * tools and its tool activity is progress narration, not client calls.
  */
+import { homedir } from "node:os";
 import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig } from "../../types";
 import type { AdapterRequest, IncomingMeta, ProviderAdapter } from "../base";
 import type { AdapterFactoryContext } from "../registry";
@@ -29,7 +30,10 @@ function sessionCwd(parsed: OcxParsedRequest): string {
     const match = /<cwd>\s*([^<]+?)\s*<\/cwd>/.exec(text) ?? /cwd[=:]\s*(\/[^\s<]+)/.exec(text);
     if (match?.[1]) return match[1];
   }
-  return process.cwd();
+  const cwd = process.cwd();
+  // launchd services start at "/", which ACP agents cannot use as a session
+  // working directory — fall back to the user's home.
+  return cwd === "/" ? homedir() : cwd;
 }
 
 export function createAcpAdapter(provider: OcxProviderConfig, context: AdapterFactoryContext = {}, deps: AcpAdapterDeps = {}): ProviderAdapter {
