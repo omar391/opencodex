@@ -2018,6 +2018,7 @@ export const vi: Record<TKey, string> = {
   "pws.acpBinaryPath": "Đường dẫn binary tác tử",
   "pws.acpBinaryPlaceholder": "Để trống để tự động phát hiện",
   "pws.acpBinaryHint": "Ghi đè việc phát hiện qua PATH và công cụ do T3 quản lý cho tác tử này. Để trống để tự động phát hiện.",
+  "pws.acpBinaryResolved": "Binary được phân giải:",
   "pws.optionalPlaceholder": "Tuỳ chọn",
   "pws.providerId": "ID provider",
   "pws.reauth": "Cần xác thực lại",

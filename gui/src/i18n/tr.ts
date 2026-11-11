@@ -2034,6 +2034,7 @@ export const tr: Record<TKey, string> = {
   "pws.acpBinaryPath": "Aracı ikili yolu",
   "pws.acpBinaryPlaceholder": "Otomatik algılama için boş bırakın",
   "pws.acpBinaryHint": "Bu aracının PATH ve T3 yönetilen araç algılamasını geçersiz kılar. Otomatik algılama için boş bırakın.",
+  "pws.acpBinaryResolved": "Çözümlenen ikili:",
   "pws.optionalPlaceholder": "İsteğe bağlı",
   "pws.providerId": "Sağlayıcı ID",
   "pws.reauth": "Yeniden doğrulama gerekiyor",

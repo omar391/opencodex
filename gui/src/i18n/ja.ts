@@ -1916,6 +1916,7 @@ export const ja: Record<TKey, string> = {
   "pws.acpBinaryPath": "エージェントバイナリパス",
   "pws.acpBinaryPlaceholder": "空欄で自動検出",
   "pws.acpBinaryHint": "このエージェントの PATH および T3 管理ツール検出を上書きします。空欄で自動検出。",
+  "pws.acpBinaryResolved": "解決されたバイナリ:",
   "pws.optionalPlaceholder": "任意",
   "pws.providerId": "プロバイダー ID",
   "pws.reauth": "再認証が必要",
