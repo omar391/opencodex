@@ -31,6 +31,7 @@ import {
   sessionLoadFrame,
   sessionNewFrame,
   sessionPromptFrame,
+  sessionSetConfigOptionFrame,
   sessionSetModeFrame,
 } from "./protocol";
 import type { AcpProviderProfile } from "./profiles";
@@ -56,6 +57,8 @@ export interface AcpTurnDeps {
   reapTimeoutMs?: number;
   /** Operator opt-in to answer session/request_permission with an allow. */
   toolsAllowed?: boolean;
+  /** Test seam: home directory for T3 tool/GEMINI_HOME lookups. */
+  homeDir?: string;
 }
 
 interface AcpSessionState {
@@ -318,19 +321,25 @@ export async function runAcpTurn(input: {
           }
           return finish(`${profile.label} session failed: ${errorMessage()}`);
         }
-        const result = frame.result as { sessionId?: string; modes?: { currentModeId?: string } } | undefined;
+        const result = frame.result as { sessionId?: string; modes?: { currentModeId?: string }; configOptions?: unknown } | undefined;
         sessionId = result?.sessionId ?? sessionId;
         if (!sessionId) return finish(`${profile.label} session returned no sessionId.`);
         suppressReplay = false;
+        // Model selection via the session's advertised config options: only
+        // sent when the agent declares the option id the profile names, so an
+        // agent without one keeps its own default instead of erroring.
+        const configIds = Array.isArray(result?.configOptions)
+          ? (result.configOptions as Array<{ id?: unknown }>).map(o => o?.id).filter((v): v is string => typeof v === "string")
+          : [];
+        if (profile.modelConfigId && configIds.includes(profile.modelConfigId)) {
+          send(sessionSetConfigOptionFrame(sessionId, profile.modelConfigId, modelId));
+        }
         if (profile.sessionMode) {
           send(sessionSetModeFrame(sessionId, profile.sessionMode));
-          // Mode set reply is id 4; the prompt follows immediately — the agent
-          // applies ordering, and a set_mode error surfaces as a stray reply we
-          // ignore below (id 4 is not ACP_PROMPT_ID).
-          send(sessionPromptFrame(sessionId, buildPrompt()));
-        } else {
-          send(sessionPromptFrame(sessionId, buildPrompt()));
         }
+        // Config/mode frames precede the prompt on stdin, so the agent applies
+        // them in order; their replies (ids 4/5) are ignored by handle().
+        send(sessionPromptFrame(sessionId, buildPrompt()));
         return;
       }
       if (frame.method === "session/request_permission" && frame.id != null) {

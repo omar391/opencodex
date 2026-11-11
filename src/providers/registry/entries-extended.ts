@@ -1784,4 +1784,39 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     },
     note: "Devin as an AGENT over the Agent Client Protocol (`devin acp`, newline-delimited JSON-RPC on stdio) — not a model endpoint. The turn runs Devin's own harness: its system prompt, its tools, its workspace cwd, its session memory (resumed via session/load across requests). The client's system prompt, tool catalog and developer context are intentionally NOT forwarded; the agent answers the user's request under its own rules. Tool activity is progress narration, never client tool calls. Mode and permissions follow the agent's session mode (default accept-edits); session/request_permission is cancelled unless OPENCODEX_ACP_ALLOW_TOOLS=1 opts in. Requires the Devin CLI (`brew install --cask devin-cli` or the install script) and `devin auth login`; no credential is stored by opencodex. Subscription routing authorization flagged for maintainer review, same as claude-cli.",
   },
+  {
+    // Google Antigravity as an ACP agent — same delegation contract as
+    // devin-acp, different binary and auth home. The ACP server is not on
+    // PATH: it is resolved from T3 Code's managed tools tree
+    // (~/.t3/tools/antigravity-acp/...) when present, and its Google sign-in
+    // state is reused from T3's provider home via GEMINI_HOME. Without T3 the
+    // binary uses its own ~/.gemini home and its own auth methods.
+    id: "antigravity-acp",
+    label: "Google Antigravity (ACP agent)",
+    adapter: "acp",
+    // Identity URL only: ACP transport is stdio, nothing connects here.
+    baseUrl: "https://antigravity.google",
+    authKind: "key",
+    keyOptional: true,
+    preserveCustomDestination: true,
+    dashboardUrl: "https://antigravity.google",
+    defaultModel: "gemini-3.8-flash",
+    // Static roster seeded from the agent's live session catalog (T3 Code's
+    // provider cache). Model selection goes through session/set_config_option
+    // when the session advertises the "model" config option.
+    models: [
+      "gemini-3.8-flash",
+      "claude-sonnet-4-6",
+      "claude-opus-4-6-thinking",
+      "gpt-oss-120b-medium",
+    ],
+    liveModels: false,
+    modelInputModalities: {
+      "gemini-3.8-flash": ["text", "image"],
+      "claude-sonnet-4-6": ["text", "image"],
+      "claude-opus-4-6-thinking": ["text", "image"],
+      "gpt-oss-120b-medium": ["text"],
+    },
+    note: "Google Antigravity as an AGENT over the Agent Client Protocol (`agy_acp_server.par`, newline-delimited JSON-RPC on stdio) — not a model endpoint. Same delegation contract as devin-acp: the agent's own harness, tools and session memory answer the user's request; the client's system prompt, tool catalog and developer context are NOT forwarded, and agent tool activity is progress narration, never client tool calls. Binary resolution prefers PATH then T3 Code's managed tools folder (~/.t3/tools/antigravity-acp); when T3's provider state exists its Google sign-in is reused via GEMINI_HOME, otherwise the binary uses ~/.gemini and its own auth (oauth-personal, gemini-api-key, agent-platform). Modes are the agent's own (default/auto_edit/yolo); session/request_permission is cancelled unless OPENCODEX_ACP_ALLOW_TOOLS=1 opts in. Subscription routing authorization flagged for maintainer review, same as claude-cli.",
+  },
 ];

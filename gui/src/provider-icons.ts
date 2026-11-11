@@ -26,6 +26,8 @@ const PROVIDER_ICON_ALIASES: Record<string, string> = {
    * row labelled Cognition would name the retired brand.
    */
   devin: "devin.svg",
+  "devin-acp": "devin.svg",
+  "antigravity-acp": "antigravity-color.svg",
   firepass: "firepass-color.svg",
   fireworks: "fireworks-color.svg",
   github: "github-copilot-color.svg",
@@ -152,6 +154,8 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   // name to read at a glance. No "devin-cli" entry: it is a deprecated alias
   // that startup migration rewrites to "devin" before the GUI reads config.
   devin: "Devin",
+  "devin-acp": "Devin ACP",
+  "antigravity-acp": "Antigravity ACP",
   github: "GitHub",
   "github-copilot": "GitHub Copilot",
   "gitlab-duo": "GitLab Duo",
