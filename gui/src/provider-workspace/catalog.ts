@@ -25,6 +25,7 @@
  */
 
 import { isSubscriptionCliProvider } from "./subscription-cli";
+import { isAcpProvider } from "./acp-agent";
 import type { ProviderDiscoverySummary } from "../models-groups";
 
 /**
@@ -157,6 +158,7 @@ function isConfigurationReady(p: WorkspaceProvider): boolean {
   // that adapter still never reads a key.
   return p.keyOptional === true ||
     isSubscriptionCliProvider(p) ||
+    isAcpProvider(p) ||
     p.authMode === "oauth" ||
     p.authMode === "forward" ||
     p.authMode === "local" ||
@@ -204,6 +206,9 @@ export function isAccountProvider(name: string, p: WorkspaceProvider): boolean {
  */
 export function isFreeProvider(p: WorkspaceProvider): boolean {
   if (isSubscriptionCliProvider(p)) return false;
+  // An ACP agent bills the CLI's own account, not a free API tier — its
+  // keyOptional means "no key stored", same trap as the subscription CLI.
+  if (isAcpProvider(p)) return false;
   return p.freeTier === true
     || p.keyOptional === true
     || p.authMode === "local"

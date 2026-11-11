@@ -8,6 +8,7 @@
 
 import { providerTier, type ProviderTier, type WorkspaceProvider, type WorkspaceItem } from "../../provider-workspace/catalog";
 import { isLocalProvider } from "../../provider-workspace/kind";
+import { isAcpProvider } from "../../provider-workspace/acp-agent";
 import type { ProviderPayload } from "../../provider-payload";
 
 /** Row shape returned by GET /api/provider-presets (mirrors DerivedProviderPreset). */
@@ -80,7 +81,7 @@ export function presetTier(preset: CatalogPreset): ProviderTier {
  * Free count, where `isFreeProvider` folds local runtimes into free on purpose. Only the
  * catalog needs Local as a browse destination, so the split stops at this file.
  */
-export type CatalogTier = "accounts" | "free" | "local" | "paid";
+export type CatalogTier = "accounts" | "free" | "local" | "acp" | "paid";
 
 /**
  * A local-runtime row: explicit `local` auth or a loopback base URL. Delegates to the one
@@ -91,10 +92,25 @@ export function isLocalCatalogPreset(preset: CatalogPreset): boolean {
   return isLocalProvider(presetTierInput(preset));
 }
 
-/** Tab buckets for the catalog: accounts / free / local / paid, preserving input order per bucket. */
+/**
+ * An agent-delegation row: adapter `acp` (devin-acp, antigravity-acp, …). These
+ * are not model endpoints — the installed agent CLI owns the harness — so they
+ * get their own browse tab rather than masquerading as free or paid API rows.
+ */
+export function isAcpCatalogPreset(preset: CatalogPreset): boolean {
+  return isAcpProvider(presetTierInput(preset));
+}
+
+/** Tab buckets for the catalog: accounts / free / local / acp / paid, preserving input order per bucket. */
 export function bucketPresets(presets: CatalogPreset[]): Record<CatalogTier, CatalogPreset[]> {
-  const buckets: Record<CatalogTier, CatalogPreset[]> = { accounts: [], free: [], local: [], paid: [] };
+  const buckets: Record<CatalogTier, CatalogPreset[]> = { accounts: [], free: [], local: [], acp: [], paid: [] };
   for (const preset of presets) {
+    // ACP first: its rows are keyOptional, so without this peel they would be
+    // claimed by the free bucket before the pricing tier ever spoke.
+    if (isAcpCatalogPreset(preset)) {
+      buckets.acp.push(preset);
+      continue;
+    }
     // Local is peeled off AFTER `presetTier` has spoken, which is what lets `presetTier`
     // keep returning `"free"` for Ollama and leaves the workspace Free count untouched.
     //
@@ -132,6 +148,9 @@ export function noteNeedsReveal(note: string | undefined): boolean {
  */
 const LOCAL_QUERY_ALIASES = new Set(["local", "localhost", "ollama", "vllm", "lmstudio", "lm studio", "self-hosted", "selfhosted"]);
 
+/** Same trick for the agent-delegation tab: `agent` finds ACP rows without matching labels. */
+const ACP_QUERY_ALIASES = new Set(["acp", "agent", "agents"]);
+
 /**
  * Unified-search match for one preset.
  *
@@ -148,7 +167,8 @@ export function matchesCatalogQuery(preset: CatalogPreset, query: string): boole
   if (preset.label.toLowerCase().includes(q)) return true;
   if (preset.id.toLowerCase().includes(q)) return true;
   if (preset.adapter.toLowerCase() === q) return true;
-  return LOCAL_QUERY_ALIASES.has(q) && isLocalCatalogPreset(preset);
+  if (LOCAL_QUERY_ALIASES.has(q) && isLocalCatalogPreset(preset)) return true;
+  return ACP_QUERY_ALIASES.has(q) && isAcpCatalogPreset(preset);
 }
 
 /**

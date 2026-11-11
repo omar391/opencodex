@@ -2,6 +2,7 @@ import type { TFn } from "../i18n/shared";
 import { isAccountProvider, type WorkspaceItem } from "./catalog";
 import { isLocalProvider } from "./kind";
 import { isSubscriptionCliProvider } from "./subscription-cli";
+import { isAcpProvider } from "./acp-agent";
 
 export type ProviderAuthSurface = "codex-accounts" | "oauth-accounts" | "api-keys" | null;
 
@@ -30,7 +31,8 @@ export function providerAuthSurface(item: WorkspaceItem): ProviderAuthSurface {
   const keyAuth = mode === "key" || hasKeyMaterial || mode === "";
   // A subscription CLI row is keyless by adapter, with or without the registry's `keyOptional`:
   // it offers no key prompt, and only a key already saved on it keeps the surface for removal.
-  const keyless = item.keyOptional === true || isSubscriptionCliProvider(item);
+  // ACP agents are the same shape: the agent CLI owns auth, so no key is ever prompted.
+  const keyless = item.keyOptional === true || isSubscriptionCliProvider(item) || isAcpProvider(item);
   if (!keyAuth || (keyless && !hasKeyMaterial)) return null;
   return "api-keys";
 }

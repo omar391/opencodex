@@ -1207,7 +1207,7 @@
   "provider-quota-claude-cli.test.ts": "providers", "provider-quota-label-sanitize.test.ts": "providers", "provider-quota-observed-marker.test.ts": "providers",
   "provider-quota-abliteration.test.ts": "providers", "provider-quota-ollama-cloud.test.ts": "providers", "provider-quota.test.ts": "providers", "provider-registry-parity.test.ts": "providers", "free-directory-runcrate.test.ts": "providers", "haiku-5-5-catalog.test.ts": "providers",
   "provider-send-path-import.test.ts": "server", "provider-static-model-discovery.test.ts": "providers",
-  "provider-subscription-cli.test.ts": "gui", "provider-workspace-auth.test.ts": "gui",
+  "provider-acp-agent.test.ts": "gui", "provider-subscription-cli.test.ts": "gui", "provider-workspace-auth.test.ts": "gui",
   "provider-workspace-data.test.ts": "gui", "provider-workspace-rail.test.ts": "gui",
   "provider-workspace-state.test.ts": "gui", "proxy-env-macos.test.ts": "server",
   "proxy-env.test.ts": "server", "proxy-liveness-package-tree-fence.test.ts": "server",
@@ -1644,5 +1644,5 @@
   "link-enrollment-ephemeral-child.test.ts": "server",
   "link-ocx-child-e2e.test.ts": "clients",
   "link-child-plant-foundations.test.ts": "clients",
-  "acp-adapter.test.ts": "adapters"
+  "acp-adapter.test.ts": "adapters/acp"
 }
