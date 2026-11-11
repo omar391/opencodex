@@ -31,6 +31,7 @@ import {
   sessionLoadFrame,
   sessionNewFrame,
   sessionPromptFrame,
+  composeEffortModelId,
   sessionSetConfigOptionFrame,
   sessionSetModeFrame,
 } from "./protocol";
@@ -117,7 +118,11 @@ export async function runAcpTurn(input: {
   });
 
   const prior = readSessionState(parsed);
-  const modelId = parsed.modelId;
+  // Effort-suffix agents spell the rung into the wire model id; the roster
+  // carries base ids and the caller's reasoning option selects the rung.
+  const modelId = profile.effortSuffix
+    ? composeEffortModelId(parsed.modelId, parsed.options?.reasoning, profile.effortSuffix)
+    : parsed.modelId;
   const env = { ...baseScopedEnv(), ...(profile.buildEnv?.(provider.apiKey ?? "") ?? {}) };
 
   await new Promise<void>((resolve) => {
