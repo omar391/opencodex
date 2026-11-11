@@ -2149,6 +2149,7 @@ export const ru: Record<TKey, string> = {
   "modal.forwardCredentials": "codex login",
   "modal.forwardHintSuffix": "этому провайдеру.",
   "modal.localHint": "API-ключ не сохраняется. Будет добавлен статический публичный каталог моделей Cursor для Codex, но живой транспорт Cursor и нативное выполнение файловых и shell-операций остаются отключёнными до прохождения аудита.",
+  "modal.acpAgentHint": "Запускает локальный агент CLI (например, devin acp). Агент сам управляет входом и оплатой — API-ключ не нужен. Пользовательский путь к бинарнику можно задать позже в настройках.",
   "modal.getApiKey": "Получить API-ключ {label}",
   "modal.apiKey": "API-ключ",
   "modal.vertexProject": "ID проекта (необязательно)",
