@@ -29,6 +29,12 @@ export interface AcpProviderProfile {
   /** ACP session config option id that selects the model (e.g. "model"); unset keeps the agent default. */
   modelConfigId?: string;
   /**
+   * Env var naming an explicit binary path override (checked before PATH and
+   * T3 scans). This is the operator customization seam until the dashboard
+   * exposes a per-provider binary field.
+   */
+  binEnv?: string;
+  /**
    * Launch arguments for one ACP turn. `modelId` is the resolved wire model;
    * profiles that take a model flag should include it (e.g. ["acp","--model",id]).
    */
@@ -57,6 +63,7 @@ const DEVIN_ACP: AcpProviderProfile = {
   // Mode unset: the session keeps the agent's own default (accept-edits) and
   // session/request_permission is answered per the operator's allow gate.
   modelConfigId: "model",
+  binEnv: "OPENCODEX_ACP_DEVIN_BIN",
 };
 
 /**
@@ -91,6 +98,7 @@ const ANTIGRAVITY_ACP: AcpProviderProfile = {
   canonicalBaseUrl: "https://antigravity.google",
   installHint: "Install Google Antigravity's ACP server (T3 Code's ACP registry provides `agy_acp_server.par` under ~/.t3/tools), then complete its Google sign-in.",
   modelConfigId: "model",
+  binEnv: "OPENCODEX_ACP_ANTIGRAVITY_BIN",
   buildEnv: () => {
     const env: Record<string, string> = {};
     const geminiHome = resolveT3AntigravityGeminiHome();
@@ -133,6 +141,12 @@ export function resolveAcpBinary(
 ): string | undefined {
   const cached = binaryCache.get(profile.providerId);
   if (cached) return cached;
+  // Explicit operator override wins over every scan target.
+  const override = profile.binEnv ? process.env[profile.binEnv]?.trim() : undefined;
+  if (override) {
+    binaryCache.set(profile.providerId, override);
+    return override;
+  }
   for (const candidate of profile.binaryCandidates) {
     const resolved = which(candidate);
     if (resolved) {
