@@ -201,6 +201,38 @@ describe("acp adapter runTurn", () => {
     expect(events.some(e => e.type === "text_delta" && (e as { text?: string }).text === "OCX-PROBE-OK")).toBe(true);
   });
 
+  test("rejected model surfaces the agent error and never prompts", async () => {
+    clearAcpBinaryCache();
+    const rejectScript = (send: (f: Record<string, unknown>) => void, stdin: PassThrough) => {
+      stdin.on("data", (d: Buffer) => {
+        const s = d.toString();
+        if (s.includes(`"id":${ACP_INITIALIZE_ID}`)) {
+          send({ jsonrpc: "2.0", id: ACP_INITIALIZE_ID, result: { protocolVersion: 1 } });
+        } else if (s.includes(`"id":${ACP_SESSION_ID}`)) {
+          send({ jsonrpc: "2.0", id: ACP_SESSION_ID, result: { sessionId: "sess-1", configOptions: [{ id: "model", options: [{ value: "gemini-3.8-flash" }] }] } });
+        } else if (s.includes('"id":5,')) {
+          send({ jsonrpc: "2.0", id: 5, error: { code: -32602, message: "Model 'swe-2-high' is not available for the current authentication method.", data: { availableModels: ["gemini-3.8-flash-high", "gemini-3.8-flash-low"] } } });
+        } else if (s.includes(`"id":${ACP_PROMPT_ID}`)) {
+          send({ jsonrpc: "2.0", id: ACP_PROMPT_ID, result: { stopReason: "end_turn" } });
+        }
+      });
+    };
+    const { child } = fakeChild(rejectScript);
+    const adapter = createAcpAdapter(PROVIDER, { providerId: "devin-acp" }, {
+      spawn: (() => child) as never,
+      which: (() => "/fake/devin") as never,
+      timeoutMs: 5_000,
+      killGraceMs: 10,
+      reapTimeoutMs: 20,
+    });
+    const events = await collect(adapter, parsed());
+    const err = events.find(e => e.type === "error") as Extract<AdapterEvent, { type: "error" }> | undefined;
+    expect(err?.code).toBe("acp_model_rejected");
+    expect(err?.message).toContain("not available for the current authentication method");
+    expect(err?.message).toContain("gemini-3.8-flash-high");
+    expect(events.some(e => e.type === "done")).toBe(false);
+  });
+
   test("unknown provider id fails closed", async () => {
     const adapter = createAcpAdapter(PROVIDER, { providerId: "unknown-agent" });
     const events = await collect(adapter, parsed());
