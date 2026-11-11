@@ -342,3 +342,20 @@ upstream `invalid_argument`.
 `src/adapters/unique-tool-call-ids.ts` forwards optional per-exchange stream context while
 retaining tool-call ID reminting; [completed tool blocks](../providers/completed-tool-blocks.md)
 require that context independently of request construction.
+
+## ACP agent-delegation wire
+
+The `acp` wire in `src/adapters/registry.ts` constructs `src/adapters/acp/adapter.ts`, a
+spawn-based Agent Client Protocol transport for agents that run their own harness (`devin acp`
+today; profiles live in `src/adapters/acp/profiles.ts`). One turn is initialize -> session/new or
+session/load -> session/prompt over newline-delimited JSON-RPC on the child's stdio; framing and
+event mapping stay pure in `src/adapters/acp/protocol.ts`, lifecycle and reaping in
+`src/adapters/acp/turn.ts`.
+
+This wire is agent delegation, not model routing: the client's system prompt, tool catalog and
+developer context are deliberately NOT forwarded, and the agent's own tools execute inside its own
+session — their tool_call updates surface as thinking-delta progress, never as client tool calls.
+Multi-turn continuity rides `providerState.acp.sessionId` through `session/load`, with a
+fresh-session fallback on a stale id. `session/request_permission` is cancelled unless
+`OPENCODEX_ACP_ALLOW_TOOLS=1` opts in; fs and terminal client capabilities are declared off.
+`tests/adapters/acp/acp-adapter.test.ts` covers framing, prompt projection, and the turn lifecycle.
