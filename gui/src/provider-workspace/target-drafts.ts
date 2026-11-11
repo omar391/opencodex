@@ -38,6 +38,7 @@ export interface ProviderSettingsDraft {
   authMode: string;
   apiKeyTransport: "x-api-key" | "bearer";
   note: string;
+  acpBinaryPath: string;
   allowPrivateNetwork: boolean;
   preserveReasoningReplay: boolean;
   liveModels: boolean;
@@ -159,6 +160,7 @@ export function providerSettingsDraftFromItem(item: WorkspaceItem): ProviderSett
     authMode: String(item.authMode ?? (item.keyOptional ? "local" : "key")),
     apiKeyTransport: item.apiKeyTransport ?? "x-api-key",
     note: item.note ?? "",
+    acpBinaryPath: item.acpBinaryPath ?? "",
     allowPrivateNetwork: item.allowPrivateNetwork ?? false,
     preserveReasoningReplay: item.preserveResponsesReasoningContent === true,
     liveModels: liveModelDiscoverySupported ? item.liveModels !== false : false,
@@ -343,6 +345,9 @@ export function providerSettingsDeltaPatch(
   if (draft.defaultModel.trim() !== baseline.defaultModel.trim()) patch.defaultModel = draft.defaultModel.trim();
   if (draft.authMode !== baseline.authMode) patch.authMode = draft.authMode;
   if (draft.note.trim() !== baseline.note.trim()) patch.note = draft.note.trim();
+  if (adapter === "acp" && draft.acpBinaryPath.trim() !== baseline.acpBinaryPath.trim()) {
+    patch.acpBinaryPath = draft.acpBinaryPath.trim();
+  }
   if (draft.allowPrivateNetwork !== baseline.allowPrivateNetwork) patch.allowPrivateNetwork = draft.allowPrivateNetwork;
   if (vertexSettings) {
     if (draft.project.trim() !== baseline.project.trim()) patch.project = draft.project.trim();
@@ -388,6 +393,7 @@ export function rebaseProviderSettingsDraft(
     authMode: pick("authMode"),
     apiKeyTransport: pick("apiKeyTransport"),
     note: pick("note"),
+    acpBinaryPath: pick("acpBinaryPath"),
     allowPrivateNetwork: pick("allowPrivateNetwork"),
     preserveReasoningReplay: pick("preserveReasoningReplay"),
     liveModels: pick("liveModels"),

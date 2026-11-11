@@ -56,6 +56,8 @@ export interface WorkspaceProvider {
   freeTier?: boolean;
   disabled?: boolean;
   note?: string;
+  /** ACP agents only: explicit agent CLI binary path (config > env > PATH > T3). */
+  acpBinaryPath?: string;
   allowPrivateNetwork?: boolean;
   preserveResponsesReasoningContent?: boolean;
   requestPacing?: {

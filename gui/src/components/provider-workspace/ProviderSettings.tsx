@@ -122,6 +122,7 @@ function ProviderSettingsForm({
   const [authMode, setAuthMode] = useState(initial.draft.authMode);
   const [apiKeyTransport, setApiKeyTransport] = useState(initial.draft.apiKeyTransport);
   const [note, setNote] = useState(initial.draft.note);
+  const [acpBinaryPath, setAcpBinaryPath] = useState(initial.draft.acpBinaryPath);
   const [allowPrivateNetwork, setAllowPrivateNetwork] = useState(initial.draft.allowPrivateNetwork);
   const [preserveReasoningReplay, setPreserveReasoningReplay] = useState(initial.draft.preserveReasoningReplay);
   const [liveModels, setLiveModels] = useState(initial.draft.liveModels);
@@ -153,10 +154,10 @@ function ProviderSettingsForm({
   const [pacingStatus, setPacingStatus] = useState<PacingStatus | null>(null);
 
   const draft = useMemo<ProviderSettingsDraft>(() => ({
-    adapter, baseUrl, project, location, defaultModel, authMode, apiKeyTransport, note,
+    adapter, baseUrl, project, location, defaultModel, authMode, apiKeyTransport, note, acpBinaryPath,
     allowPrivateNetwork, preserveReasoningReplay, liveModels, cursorHttpVersion,
     pacingEnabled, keyPacing, pacingRpm, pacingDelay, pacingConcurrency, pacingModels,
-  }), [adapter, allowPrivateNetwork, apiKeyTransport, authMode, baseUrl, cursorHttpVersion, defaultModel,
+  }), [acpBinaryPath, adapter, allowPrivateNetwork, apiKeyTransport, authMode, baseUrl, cursorHttpVersion, defaultModel,
     keyPacing, liveModels, location, note, pacingConcurrency, pacingDelay, pacingEnabled, pacingModels, pacingRpm,
     preserveReasoningReplay, project]);
 
@@ -169,6 +170,7 @@ function ProviderSettingsForm({
     setAuthMode(next.authMode);
     setApiKeyTransport(next.apiKeyTransport);
     setNote(next.note);
+    setAcpBinaryPath(next.acpBinaryPath);
     setAllowPrivateNetwork(next.allowPrivateNetwork);
     setPreserveReasoningReplay(next.preserveReasoningReplay);
     setLiveModels(next.liveModels);
@@ -564,6 +566,13 @@ function ProviderSettingsForm({
             ]}
           />
           <span className="pwi-settings-hint">{t("pws.cursorTransportDesc")}</span>
+        </label>
+      )}
+      {adapter.trim() === "acp" && (
+        <label className="pwi-settings-field">
+          <span className="pwi-settings-label">{t("pws.acpBinaryPath")}</span>
+          <input className="input" value={acpBinaryPath} onChange={e => setAcpBinaryPath(e.target.value)} placeholder={t("pws.acpBinaryPlaceholder")} />
+          <span className="pwi-settings-hint">{t("pws.acpBinaryHint")}</span>
         </label>
       )}
       <label className="pwi-settings-field">

@@ -1167,6 +1167,7 @@ const PROVIDER_CONFIG_FIELD_POLICY = {
   keyOptional: "editor",
   freeTier: "editor",
   note: "editor",
+  acpBinaryPath: "editor",
   modelSuffixBracketStrip: "editor",
   refreshPolicy: "editor",
   reasoningEfforts: "editor",
