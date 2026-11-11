@@ -2172,6 +2172,7 @@ export const tr: Record<TKey, string> = {
   "modal.forwardCredentials": "codex girişi",
   "modal.forwardHintSuffix": "kimlik bilgilerini bu sağlayıcıya iletir.",
   "modal.localHint": "Yerel mod, Cursor'ın statik kamuya açık kataloğunu kaydeder. Canlı taşıma, dosya ve kabuk (shell) araçları denetlenene kadar kapalı kalır.",
+  "modal.acpAgentHint": "Yerel bir aracı CLI’si çalıştırır (örneğin devin acp). Oturum açma ve faturalandırma aracıya aittir — API anahtarı gerekmez. Özel ikili yolunu daha sonra Ayarlar’dan belirleyebilirsiniz.",
   "modal.getApiKey": "{label} API anahtarınızı alın",
   "modal.apiKey": "API anahtarı",
   "modal.vertexProject": "Proje kimliği (isteğe bağlı)",

@@ -2159,6 +2159,7 @@ export const fr: Record<TKey, string> = {
   "modal.forwardCredentials": "connexion Codex",
   "modal.forwardHintSuffix": "à ce fournisseur.",
   "modal.localHint": "Aucune clé API n’est stockée. Cette option ajoute le catalogue public statique de modèles Cursor pour Codex, mais le transport Cursor en direct et l’exécution native de fichiers/commandes restent désactivés jusqu’à leur audit.",
+  "modal.acpAgentHint": "Exécute un agent CLI local (par exemple devin acp). L’agent gère sa propre connexion et sa facturation — aucune clé API requise. Définissez un chemin de binaire personnalisé plus tard dans les paramètres.",
   "modal.getApiKey": "Obtenir votre clé API {label}",
   "modal.apiKey": "Clé API",
   "modal.vertexProject": "ID du projet (facultatif)",

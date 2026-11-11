@@ -52,6 +52,8 @@ export function AddProviderFormPane({
 }) {
   const t = useT();
   const subscriptionCli = isSubscriptionCliProvider(form);
+  // ACP rows spawn a local agent CLI: no endpoint URL or API key applies.
+  const isAcp = form.adapter === "acp";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -83,7 +85,7 @@ export function AddProviderFormPane({
             onChange={adapter => onFormChange({ ...form, adapter })}
             options={adapterOptions(form.adapter).map(a => ({ value: a, label: a }))} />
         </AddProviderField>
-        {preset.baseUrlChoices && preset.baseUrlChoices.length > 0 ? (
+        {!isAcp && (preset.baseUrlChoices && preset.baseUrlChoices.length > 0 ? (
           <>
             <AddProviderField label={t("modal.endpoint")}>
               <Select
@@ -121,14 +123,14 @@ export function AddProviderFormPane({
           <AddProviderField label={t("modal.baseUrl")}>
             <input className="input" value={form.baseUrl} onChange={e => onFormChange({ ...form, baseUrl: e.target.value })} placeholder={t("modal.baseUrlPlaceholder")} />
           </AddProviderField>
-        )}
-        {!isReservedForward && (
+        ))}
+        {!isReservedForward && !isAcp && (
           <label className="modal-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <input type="checkbox" checked={form?.allowPrivateNetwork ?? false} onChange={e => onFormChange({ ...form, allowPrivateNetwork: e.target.checked })} />
             <span className="muted text-control">{t("modal.allowPrivateNetwork")}</span>
           </label>
         )}
-        {!isReservedForward && (form?.allowPrivateNetwork ?? false) && (
+        {!isReservedForward && !isAcp && (form?.allowPrivateNetwork ?? false) && (
           <p className="muted text-hint">{t("modal.allowPrivateNetworkHint")}</p>
         )}
       </>}
@@ -136,7 +138,11 @@ export function AddProviderFormPane({
         <ResponsesReasoningReplayControl checked={form.preserveResponsesReasoningContent === true}
           onChange={checked => onFormChange({ ...form, preserveResponsesReasoningContent: checked })} />
       )}
-      {form.authMode === "forward" ? (
+      {isAcp ? (
+        <div role="note" className="text-label leading-relaxed" style={{ color: "var(--accent, var(--green))", background: "var(--green-soft)", border: "1px solid var(--green)", borderRadius: "var(--radius-sm)", padding: "10px 12px" }}>
+          {t("modal.acpAgentHint")}
+        </div>
+      ) : form.authMode === "forward" ? (
         <div className="text-label" style={{ color: "var(--green)", background: "var(--green-soft)", border: "1px solid var(--green)", borderRadius: "var(--radius-sm)", padding: "8px 10px" }}>
           {presetDescription(preset)}
         </div>

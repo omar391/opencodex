@@ -2156,6 +2156,7 @@ export const vi: Record<TKey, string> = {
   "modal.forwardCredentials": "đăng nhập codex",
   "modal.forwardHintSuffix": "thông tin xác thực của bạn đến provider này.",
   "modal.localHint": "Không lưu trữ API key. Thao tác này sẽ thêm danh mục model công khai tĩnh của Cursor cho Codex, nhưng transport trực tiếp của Cursor và tính năng thực thi file/shell native vẫn bị vô hiệu hoá cho đến khi được kiểm toán.",
+  "modal.acpAgentHint": "Chạy một tác tử CLI cục bộ (ví dụ devin acp). Tác tử tự quản lý đăng nhập và thanh toán — không cần khóa API. Đặt đường dẫn binary tùy chỉnh sau trong Cài đặt.",
   "modal.getApiKey": "Lấy API key {label} của bạn",
   "modal.apiKey": "API key",
   "modal.vertexProject": "ID dự án (tùy chọn)",

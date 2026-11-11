@@ -2186,6 +2186,7 @@ export const en = {
   "modal.forwardCredentials": "codex login",
   "modal.forwardHintSuffix": "credentials to this provider.",
   "modal.localHint": "No API key is stored. This adds Cursor's static public model catalog for Codex, but live Cursor transport and native file/shell execution remain disabled until audited.",
+  "modal.acpAgentHint": "Runs a local agent CLI (for example devin acp). The agent owns its own sign-in and billing — no API key needed. Set a custom binary path later in Settings.",
   "modal.getApiKey": "Get your {label} API key",
   "modal.apiKey": "API key",
   "modal.vertexProject": "Project ID (optional)",

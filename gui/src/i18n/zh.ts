@@ -3355,6 +3355,7 @@ export const zh: Record<TKey, string> = {
   "modal.forwardCredentials": "codex login",
   "modal.forwardHintSuffix": "凭据到此提供方。",
   "modal.localHint": "不会存储 API 密钥。这会为 Codex 添加 Cursor 的公开模型目录，但在审计完成前，实时 Cursor 传输与原生文件/Shell 执行仍保持禁用。",
+  "modal.acpAgentHint": "运行本地代理 CLI（例如 devin acp）。登录和计费由代理自行管理——无需 API 密钥。稍后可在“设置”中指定自定义二进制路径。",
   "modal.getApiKey": "获取 {label} API 密钥",
   "modal.apiKey": "API 密钥",
   "modal.vertexProject": "项目 ID（可选）",

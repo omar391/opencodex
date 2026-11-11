@@ -2054,6 +2054,7 @@ export const ja: Record<TKey, string> = {
   "modal.forwardCredentials": "codex ログイン",
   "modal.forwardHintSuffix": "資格情報をこのプロバイダーに転送します。",
   "modal.localHint": "API キーは保存されません。Cursor の静的な公開モデルカタログを Codex に追加しますが、ライブの Cursor トランスポートとネイティブのファイル/シェル実行は監査されるまで無効のままです。",
+  "modal.acpAgentHint": "ローカルのエージェント CLI（例: devin acp）を実行します。サインインと課金はエージェント自身が管理するため、API キーは不要です。カスタムバイナリパスは後で設定で指定できます。",
   "modal.getApiKey": "{label} の API キーを取得",
   "modal.apiKey": "API キー",
   "modal.vertexProject": "プロジェクト ID（任意）",

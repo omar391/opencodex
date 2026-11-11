@@ -1828,6 +1828,7 @@ export const zhTW: Record<TKey, string> = {
   "modal.forwardCredentials": "codex login",
   "modal.forwardHintSuffix": "憑證到此供應商。",
   "modal.localHint": "不會儲存 API 金鑰。這會為 Codex 新增 Cursor 的公開模型目錄，但在審計完成前，即時 Cursor 傳輸與原生檔案/Shell 執行仍保持停用。",
+  "modal.acpAgentHint": "執行本機代理 CLI（例如 devin acp）。登入與計費由代理自行管理——無需 API 金鑰。稍後可在「設定」中指定自訂二進位路徑。",
   "modal.getApiKey": "取得 {label} API 金鑰",
   "modal.apiKey": "API 金鑰",
   "modal.vertexProject": "專案 ID（選填）",

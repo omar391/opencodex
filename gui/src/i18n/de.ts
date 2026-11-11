@@ -3335,6 +3335,7 @@ export const de: Record<TKey, string> = {
   "modal.forwardCredentials": "codex login",
   "modal.forwardHintSuffix": "Anmeldedaten an diesen Anbieter weiter.",
   "modal.localHint": "Es wird kein API-Schlüssel gespeichert. Damit wird Cursors öffentlicher Modellkatalog für Codex hinzugefügt; live Cursor-Transport und native Datei-/Shell-Ausführung bleiben deaktiviert, bis sie geprüft sind.",
+  "modal.acpAgentHint": "Führt eine lokale Agent-CLI aus (z. B. devin acp). Die Anmeldung und Abrechnung übernimmt der Agent selbst — kein API-Schlüssel nötig. Einen eigenen Binärpfad können Sie später in den Einstellungen festlegen.",
   "modal.getApiKey": "{label}-API-Schlüssel holen",
   "modal.apiKey": "API-Schlüssel",
   "modal.vertexProject": "Projekt-ID (optional)",
