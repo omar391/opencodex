@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { createAcpAdapter } from "../../../src/adapters/acp/adapter";
-import { ACP_INITIALIZE_ID, ACP_PROMPT_ID, ACP_SESSION_ID, buildAcpPrompt, buildAcpHistory, acpUpdateToEvents, mapAcpUsage, sessionLoadFrame } from "../../../src/adapters/acp/protocol";
+import { ACP_INITIALIZE_ID, ACP_PROMPT_ID, ACP_SESSION_ID, buildAcpPrompt, buildAcpHistory, acpUpdateToEvents, mapAcpUsage, sessionLoadFrame, composeEffortModelId } from "../../../src/adapters/acp/protocol";
 import { clearAcpBinaryCache, resolveAcpProfile, acpProfiles, resolveT3ToolBinary, resolveT3AntigravityGeminiHome } from "../../../src/adapters/acp/profiles";
 import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig } from "../../../src/types";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
@@ -116,6 +116,15 @@ describe("acp protocol", () => {
   test("mapAcpUsage keeps cached read tokens", () => {
     const u = mapAcpUsage({ inputTokens: 100, outputTokens: 5, cachedReadTokens: 40, totalTokens: 105 });
     expect(u).toMatchObject({ inputTokens: 100, outputTokens: 5, cachedInputTokens: 40 });
+  });
+
+  test("composeEffortModelId composes rungs and honors noSuffix", () => {
+    const suffix = { efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "medium", noSuffix: ["adaptive"] };
+    expect(composeEffortModelId("swe-2-flash", "high", suffix)).toBe("swe-2-flash-high");
+    expect(composeEffortModelId("swe-2-flash", undefined, suffix)).toBe("swe-2-flash-medium");
+    expect(composeEffortModelId("swe-2-flash", "bogus", suffix)).toBe("swe-2-flash-medium");
+    expect(composeEffortModelId("adaptive", "high", suffix)).toBe("adaptive");
+    expect(composeEffortModelId("swe-2-high", "low", suffix)).toBe("swe-2-high");
   });
 
   test("sessionLoadFrame targets an existing session", () => {

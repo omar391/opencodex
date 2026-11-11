@@ -35,6 +35,19 @@ export interface AcpProviderProfile {
    */
   binEnv?: string;
   /**
+   * Effort-suffix composition for agents whose model catalog spells effort
+   * into the model id (`swe-2-flash` + `medium` → `swe-2-flash-medium`).
+   * `models` then lists BASE ids and the provider row carries reasoningEfforts;
+   * the adapter composes the wire id. `noSuffix` names ids passed verbatim
+   * (routers/variants that take no effort rung).
+   */
+  effortSuffix?: {
+    efforts: readonly string[];
+    separator?: string;
+    defaultEffort?: string;
+    noSuffix?: readonly string[];
+  };
+  /**
    * Launch arguments for one ACP turn. `modelId` is the resolved wire model;
    * profiles that take a model flag should include it (e.g. ["acp","--model",id]).
    */
@@ -64,6 +77,12 @@ const DEVIN_ACP: AcpProviderProfile = {
   // session/request_permission is answered per the operator's allow gate.
   modelConfigId: "model",
   binEnv: "OPENCODEX_ACP_DEVIN_BIN",
+  effortSuffix: {
+    // Cognition's catalog rungs; `adaptive` is the auto-router and takes none.
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+    noSuffix: ["adaptive"],
+  },
 };
 
 /**

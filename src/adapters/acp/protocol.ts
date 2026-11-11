@@ -201,6 +201,29 @@ function fence(label: string, body: string): string {
   return `[${label}]\n${body.replace(/^\[(User|Assistant|System|Tool)\]/gm, " $&")}`;
 }
 
+/**
+ * Compose the wire model id for effort-suffix agents.
+ *
+ * `modelId` is the roster base id; `effort` is the caller's reasoning option.
+ * A recognized effort rung wins, anything else (unset or unrecognized) falls
+ * back to the profile default so a bare base id never reaches the agent —
+ * these catalogs only publish suffixed ids. `noSuffix` ids pass verbatim.
+ */
+export function composeEffortModelId(
+  modelId: string,
+  effort: string | undefined,
+  suffix: { efforts: readonly string[]; separator?: string; defaultEffort?: string; noSuffix?: readonly string[] },
+): string {
+  if (suffix.noSuffix?.includes(modelId)) return modelId;
+  const sep = suffix.separator ?? "-";
+  const rung = effort && suffix.efforts.includes(effort) ? effort : suffix.defaultEffort;
+  if (!rung) return modelId;
+  // A model id already carrying a rung is left alone — the catalog ids are
+  // authoritative and re-suffixing would produce `x-high-medium`.
+  if (suffix.efforts.some(e => modelId.endsWith(`${sep}${e}`))) return modelId;
+  return `${modelId}${sep}${rung}`;
+}
+
 export type AcpTurnOutcome = { stopReason?: string; usage?: OcxUsage };
 
 /** ACP stop reasons that mean the turn ended normally. */
