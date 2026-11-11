@@ -919,6 +919,7 @@
       "scope": "The single adapter construction authority and contract inheritance.",
       "documents": [
         "src/adapters/",
+        "src/adapters/acp/",
         "src/server/"
       ]
     },
