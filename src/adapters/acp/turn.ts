@@ -297,6 +297,17 @@ export async function runAcpTurn(input: {
       return [...blocks, ...buildAcpPrompt(parsed.context)];
     }
 
+    // The prompt is held until the model config-option ack arrives: an agent
+    // that rejects the model must fail the turn with its own message instead of
+    // silently answering on the default model.
+    let promptSent = false;
+    let awaitingModelAck = false;
+    function sendPrompt(): void {
+      if (promptSent || !sessionId) return;
+      promptSent = true;
+      send(sessionPromptFrame(sessionId, buildPrompt()));
+    }
+
     function handle(frame: Record<string, unknown>): void {
       if (settled) return;
       const id = idOf(frame.id);
@@ -337,14 +348,34 @@ export async function runAcpTurn(input: {
           ? (result.configOptions as Array<{ id?: unknown }>).map(o => o?.id).filter((v): v is string => typeof v === "string")
           : [];
         if (profile.modelConfigId && configIds.includes(profile.modelConfigId)) {
+          awaitingModelAck = true;
           send(sessionSetConfigOptionFrame(sessionId, profile.modelConfigId, modelId));
         }
         if (profile.sessionMode) {
           send(sessionSetModeFrame(sessionId, profile.sessionMode));
         }
         // Config/mode frames precede the prompt on stdin, so the agent applies
-        // them in order; their replies (ids 4/5) are ignored by handle().
-        send(sessionPromptFrame(sessionId, buildPrompt()));
+        // them in order; the prompt waits for the model ack (id 5) so a rejected
+        // model surfaces the agent's own error instead of running the default.
+        if (!awaitingModelAck) sendPrompt();
+        return;
+      }
+      if (id === 5 && awaitingModelAck) {
+        awaitingModelAck = false;
+        if (error) {
+          const data = error.data as { availableModels?: unknown } | undefined;
+          const available = Array.isArray(data?.availableModels)
+            ? data.availableModels.filter((v): v is string => typeof v === "string")
+            : [];
+          const suffix = available.length ? ` Available: ${available.join(", ")}.` : "";
+          return finish(`${profile.label} model selection failed: ${errorMessage()}${suffix}`, {
+            status: 502,
+            errorType: "upstream_error",
+            code: "acp_model_rejected",
+            retryable: false,
+          });
+        }
+        sendPrompt();
         return;
       }
       if (frame.method === "session/request_permission" && frame.id != null) {
