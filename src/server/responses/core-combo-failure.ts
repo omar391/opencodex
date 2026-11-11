@@ -8,6 +8,8 @@ import {
   codexAccountModelRefusalHardStopCode,
   isMalformedResponseFormatRequest,
   isOpenRouterOpaque400Envelope,
+  isUnofferedToolCallRefusal,
+  upstreamEnvelopeRootCode,
   type CodexAccountModelRefusal,
 } from "../../combos/failover";
 import { parseRetryAfterMs } from "../../combos";
@@ -63,6 +65,7 @@ export async function consumeComboFailure(
   let codexModelRefusal: CodexAccountModelRefusal | undefined;
   let malformedResponseFormat: boolean | undefined;
   let openRouterOpaque400: boolean | undefined;
+  let unofferedToolCallRefusal: boolean | undefined;
   let usage: OcxUsage | undefined;
   let upstreamCode: string | undefined;
   let upstreamMessage: string | undefined;
@@ -101,6 +104,9 @@ export async function consumeComboFailure(
         codexModelRefusal = codexAccountModelRefusal(response.status, body.text);
         malformedResponseFormat = isMalformedResponseFormatRequest(response.status, body.text);
         openRouterOpaque400 = isOpenRouterOpaque400Envelope(body.text);
+        // The intact bounded body, not the 500-char display prefix: a long refusal envelope
+        // would fail the classifier's JSON parse on truncated text and stop the combo.
+        unofferedToolCallRefusal = isUnofferedToolCallRefusal(response.status, body.text);
       }
       const normalized = normalizeUpstreamErrorText(body.text, fallback);
       if (utf8Trusted || isCyberPolicyCode(normalized.code) || isCyberPolicyMessage(normalized.safeText)) {
@@ -181,6 +187,7 @@ export async function consumeComboFailure(
     ...(codexModelRefusal !== undefined ? { codexModelRefusal } : {}),
     ...(malformedResponseFormat !== undefined ? { malformedResponseFormat } : {}),
     ...(openRouterOpaque400 !== undefined ? { openRouterOpaque400 } : {}),
+    ...(unofferedToolCallRefusal !== undefined ? { unofferedToolCallRefusal } : {}),
     ...(normalizedUpstreamCode !== undefined ? { upstreamCode: normalizedUpstreamCode } : {}),
     ...(upstreamMessage !== undefined ? { upstreamMessage } : {}),
     ...(upstreamType !== undefined ? { upstreamType } : {}),

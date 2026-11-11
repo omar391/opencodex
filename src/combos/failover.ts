@@ -1205,6 +1205,28 @@ function isUnofferedToolCallVerdict(text: string): boolean {
   return UNOFFERED_TOOL_CALL_MESSAGE.test(value);
 }
 
+/**
+ * A root message that carries its own envelope prefix is peeled and its contents must still
+ * support the verdict: `Provider error 400: Invalid value for tools` contradicts a nested
+ * refusal even though the prefix itself is recognized.
+ */
+function isUnofferedToolCallCarrierVerdict(text: string): boolean {
+  let value = text.trim();
+  for (let depth = 0; depth < 3; depth += 1) {
+    const proxyPrefix = /^Provider error \d{3}: /.exec(value);
+    if (proxyPrefix) {
+      value = value.slice(proxyPrefix[0].length).trim();
+      continue;
+    }
+    if (value.startsWith("data:") && !value.includes("\n")) {
+      value = value.slice("data:".length).trim();
+      continue;
+    }
+    break;
+  }
+  return isUnofferedToolCallVerdict(value);
+}
+
 function hasUnofferedToolCallCarrierPrefix(text: string): boolean {
   return /^Provider error \d{3}: /.test(text) || (text.startsWith("data:") && !text.includes("\n"));
 }
@@ -1236,7 +1258,7 @@ function unofferedToolCallRecordShape(record: Record<string, unknown>): boolean 
  * Bare verdict text is also a carrier: a chat gateway can surface the sentence with no JSON
  * envelope at all.
  */
-function isUnofferedToolCallRefusal(
+export function isUnofferedToolCallRefusal(
   status: number,
   message: string,
   code?: string | number | null,
@@ -1258,10 +1280,12 @@ function isUnofferedToolCallRefusal(
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
     const root = payload as Record<string, unknown>;
     if (!unofferedToolCallRecordShape(root)) return false;
-    if (typeof root.message === "string" && root.message.trim() !== ""
-      && !isUnofferedToolCallVerdict(root.message)
-      && !hasUnofferedToolCallCarrierPrefix(root.message.trim())) return false;
     const error = root.error;
+    // A nested verdict must agree with the root's own message. When the root carries no error
+    // record its message IS the payload carrier and is validated by the flat path below.
+    if (error !== undefined && error !== null
+      && typeof root.message === "string" && root.message.trim() !== ""
+      && !isUnofferedToolCallCarrierVerdict(root.message)) return false;
     if (error === undefined || error === null) {
       if (typeof root.message !== "string") return false;
       if (hasUnofferedToolCallCarrierPrefix(root.message.trim())) {
@@ -1306,6 +1330,7 @@ export function comboFailureCooldownScope(
     code?: string | number | null;
     malformedResponseFormat?: boolean;
     openRouterOpaque400?: boolean;
+    unofferedToolCallRefusal?: boolean;
   },
 ): ComboFailureCooldownScope {
   const rawCode = typeof options?.code === "number" ? String(options.code) : options?.code;
@@ -1329,8 +1354,12 @@ export function comboFailureCooldownScope(
     || isOpaqueEncryptedContentRefusal(status, message, rawCode)
     || isResponsesContractRefusal(status, message, rawCode)
     // The provider answered and its model simply called a function it was never offered: the
-    // request fit and the target is healthy, so this must not cool it either.
-    || isUnofferedToolCallRefusal(status, message, rawCode)
+    // request fit and the target is healthy, so this must not cool it either. A caller that
+    // classified the intact bounded body supplies the verdict directly; the display-truncated
+    // text here would fail the envelope parse on a long body.
+    || (options?.unofferedToolCallRefusal !== undefined
+      ? options.unofferedToolCallRefusal
+      : isUnofferedToolCallRefusal(status, message, rawCode))
   ) return "none";
   if (isProviderScopedQuotaCap(status, message, rawCode)) return "provider";
   // A rejected or unpaid credential is provider-wide evidence: every target that routes
@@ -1465,6 +1494,34 @@ export function comboFailureDecision(
     verifiedPlanRefusal?: boolean;
     malformedResponseFormat?: boolean;
     openRouterOpaque400?: boolean;
+    unofferedToolCallRefusal?: boolean;
+  },
+): ComboFailureDecision {
+  const rootRawCode = typeof options?.rootCode === "number" ? String(options.rootCode) : options?.rootCode;
+  const nestedRawCode = typeof options?.code === "number" ? String(options.code) : options?.code;
+  const rootCode = normalizedFailureCode(rootRawCode);
+  const nestedCode = normalizedFailureCode(nestedRawCode);
+  if (rootCode !== "" && rootCode !== nestedCode) {
+    if (nestedCode === "") return decideComboFailure(status, message, { ...options, code: rootRawCode });
+    const rootDecision = decideComboFailure(status, message, { ...options, code: rootRawCode });
+    if (rootDecision === "stop") return "stop";
+    return decideComboFailure(status, message, { ...options, code: nestedRawCode }) === "hop"
+      ? "hop" : "stop";
+  }
+  return decideComboFailure(status, message, options);
+}
+
+function decideComboFailure(
+  status: number,
+  message: string,
+  options?: {
+    code?: string | number | null;
+    codexModelRefusal?: CodexAccountModelRefusal;
+    failedAdapter?: string;
+    verifiedPlanRefusal?: boolean;
+    malformedResponseFormat?: boolean;
+    openRouterOpaque400?: boolean;
+    unofferedToolCallRefusal?: boolean;
   },
 ): ComboFailureDecision {
   if (status === 499) return "stop";
@@ -1556,8 +1613,12 @@ export function comboFailureDecision(
   if (isProviderModerationRefusal(status, message, rawCode)) return "hop";
   // A model that calls a function the request never offered hallucinated the call: target-local
   // behavior on a healthy target, arriving as a pre-output 400. Must precede the generic
-  // invalid_request_error stop, which is where this envelope ended the chain.
-  if (isUnofferedToolCallRefusal(status, message, rawCode)) return "hop";
+  // invalid_request_error stop, which is where this envelope ended the chain. A caller that
+  // classified the intact bounded body supplies the verdict directly; the display-truncated
+  // text here would fail the envelope parse on a long body.
+  if (options?.unofferedToolCallRefusal !== undefined
+    ? options.unofferedToolCallRefusal
+    : isUnofferedToolCallRefusal(status, message, rawCode)) return "hop";
   if (isAnthropicBillingFailure(status, message, rawCode)) return "hop";
   if (isOpaqueEncryptedContentRefusal(status, message, rawCode)) return "hop";
   if (isResponsesContractRefusal(status, message, rawCode)) return "hop";
