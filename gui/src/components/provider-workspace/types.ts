@@ -138,6 +138,8 @@ export type ProviderUpdatePatch = {
   apiKeyTransport?: "x-api-key" | "bearer" | "";
   authMode?: string;
   note?: string;
+  /** ACP agents only: explicit agent CLI binary path; empty string clears. */
+  acpBinaryPath?: string;
   disabled?: boolean;
   allowPrivateNetwork?: boolean;
   preserveResponsesReasoningContent?: boolean;

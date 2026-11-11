@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { createAcpAdapter } from "../../../src/adapters/acp/adapter";
 import { ACP_INITIALIZE_ID, ACP_PROMPT_ID, ACP_SESSION_ID, buildAcpPrompt, buildAcpHistory, acpUpdateToEvents, mapAcpUsage, sessionLoadFrame, composeEffortModelId } from "../../../src/adapters/acp/protocol";
-import { clearAcpBinaryCache, resolveAcpProfile, acpProfiles, resolveT3ToolBinary, resolveT3AntigravityGeminiHome } from "../../../src/adapters/acp/profiles";
+import { clearAcpBinaryCache, resolveAcpBinaryInfo, resolveAcpProfile, acpProfiles, resolveT3ToolBinary, resolveT3AntigravityGeminiHome } from "../../../src/adapters/acp/profiles";
 import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig } from "../../../src/types";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { SpawnOptions } from "node:child_process";
@@ -125,6 +125,23 @@ describe("acp protocol", () => {
     expect(composeEffortModelId("swe-2-flash", "bogus", suffix)).toBe("swe-2-flash-medium");
     expect(composeEffortModelId("adaptive", "high", suffix)).toBe("adaptive");
     expect(composeEffortModelId("swe-2-high", "low", suffix)).toBe("swe-2-high");
+  });
+
+  test("resolveAcpBinaryInfo reports config > env > path precedence and source", () => {
+    clearAcpBinaryCache();
+    const profile = resolveAcpProfile("devin-acp")!;
+    delete process.env.OPENCODEX_ACP_DEVIN_BIN;
+    // Configured path wins over env and scans, is trimmed, and is not cached.
+    expect(resolveAcpBinaryInfo(profile, () => "/scan/devin", { configuredPath: "  /custom/devin  " }))
+      .toEqual({ path: "/custom/devin", source: "config" });
+    process.env.OPENCODEX_ACP_DEVIN_BIN = "/env/devin";
+    expect(resolveAcpBinaryInfo(profile, () => "/scan/devin")).toEqual({ path: "/env/devin", source: "env" });
+    delete process.env.OPENCODEX_ACP_DEVIN_BIN;
+    clearAcpBinaryCache();
+    expect(resolveAcpBinaryInfo(profile, () => "/scan/devin")).toEqual({ path: "/scan/devin", source: "path" });
+    // A configured path set after a cached scan still wins — settings edits apply live.
+    expect(resolveAcpBinaryInfo(profile, () => "/scan/devin", { configuredPath: "/later/devin" }))
+      .toEqual({ path: "/later/devin", source: "config" });
   });
 
   test("sessionLoadFrame targets an existing session", () => {

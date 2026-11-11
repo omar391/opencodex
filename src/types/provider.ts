@@ -805,6 +805,12 @@ export interface OcxProviderConfig {
   freeTier?: boolean;
   /** Optional human note shown in the providers UI (not used for routing). */
   note?: string;
+  /**
+   * ACP agents only (`adapter: "acp"`): explicit path to the agent CLI binary.
+   * Wins over OPENCODEX_ACP_*_BIN, PATH and T3 managed-tools discovery. Empty
+   * or absent falls through to those scans.
+   */
+  acpBinaryPath?: string;
   /** Strip one trailing bracketed suffix from model ids before sending them upstream. */
   modelSuffixBracketStrip?: boolean;
   /**

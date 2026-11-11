@@ -92,6 +92,7 @@ export const PROVIDER_MODEL_RENAME_ROLES = {
   keyOptional: "none",
   freeTier: "none",
   note: "none",
+  acpBinaryPath: "none",
   modelSuffixBracketStrip: "none",
   refreshPolicy: "none",
   reasoningEfforts: "none",

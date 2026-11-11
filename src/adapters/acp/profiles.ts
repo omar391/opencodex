@@ -140,47 +140,64 @@ export function acpProfiles(): readonly AcpProviderProfile[] {
   return PROFILES;
 }
 
-const binaryCache = new Map<string, string>();
+export type AcpBinarySource = "config" | "env" | "path" | "t3";
+
+export interface AcpBinaryResolution {
+  path: string;
+  source: AcpBinarySource;
+}
+
+const binaryInfoCache = new Map<string, AcpBinaryResolution>();
 
 /** Reset the discovery cache (tests). */
 export function clearAcpBinaryCache(): void {
-  binaryCache.clear();
+  binaryInfoCache.clear();
 }
 
 /**
  * Discover the agent binary BEFORE a request is sent, so a missing CLI is a
- * clear pre-flight error rather than a mid-turn ENOENT. Reuses the shared PATH
- * scan so native executables beat batch dispatchers exactly like the
- * coding-agent transports.
+ * clear pre-flight error rather than a mid-turn ENOENT. Resolution order:
+ * provider config `acpBinaryPath` > profile env override > PATH candidates >
+ * T3 Code's managed tools tree (when present). The configured path is answered
+ * before the cache so a settings edit takes effect without a restart; scan
+ * results are cached per profile because env/PATH/T3 do not move mid-process.
+ * Reuses the shared PATH scan so native executables beat batch dispatchers
+ * exactly like the coding-agent transports.
  */
-export function resolveAcpBinary(
+export function resolveAcpBinaryInfo(
   profile: AcpProviderProfile,
   which: WhichFn = whichFromPath,
-  opts?: { home?: string },
-): string | undefined {
-  const cached = binaryCache.get(profile.providerId);
+  opts?: { home?: string; configuredPath?: string },
+): AcpBinaryResolution | undefined {
+  const configured = opts?.configuredPath?.trim();
+  if (configured) return { path: configured, source: "config" };
+  const cached = binaryInfoCache.get(profile.providerId);
   if (cached) return cached;
+  const remember = (path: string, source: AcpBinarySource): AcpBinaryResolution => {
+    const resolution = { path, source };
+    binaryInfoCache.set(profile.providerId, resolution);
+    return resolution;
+  };
   // Explicit operator override wins over every scan target.
   const override = profile.binEnv ? process.env[profile.binEnv]?.trim() : undefined;
-  if (override) {
-    binaryCache.set(profile.providerId, override);
-    return override;
-  }
+  if (override) return remember(override, "env");
   for (const candidate of profile.binaryCandidates) {
     const resolved = which(candidate);
-    if (resolved) {
-      binaryCache.set(profile.providerId, resolved);
-      return resolved;
-    }
+    if (resolved) return remember(resolved, "path");
   }
   if (profile.t3ToolName && profile.t3BinaryName) {
     const t3 = resolveT3ToolBinary(profile.t3ToolName, profile.t3BinaryName, { home: opts?.home });
-    if (t3) {
-      binaryCache.set(profile.providerId, t3);
-      return t3;
-    }
+    if (t3) return remember(t3, "t3");
   }
   return undefined;
+}
+
+export function resolveAcpBinary(
+  profile: AcpProviderProfile,
+  which: WhichFn = whichFromPath,
+  opts?: { home?: string; configuredPath?: string },
+): string | undefined {
+  return resolveAcpBinaryInfo(profile, which, opts)?.path;
 }
 
 /**
