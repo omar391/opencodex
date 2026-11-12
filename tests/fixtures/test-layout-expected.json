@@ -1177,7 +1177,7 @@
   "parallel-tool-calls-optin.test.ts": "codex-integration", "parser-content-audio.test.ts": "responses",
   "passive-route-linker.test.ts": "server", "passthrough-abort.test.ts": "responses",
   "passthrough-grok-upstream-envelope-echo.test.ts": "responses", "passthrough-headers.test.ts": "responses",
-  "passthrough-override.test.ts": "responses", "phase100-native-parity.test.ts": "e2e-style",
+  "passthrough-override.test.ts": "responses", "phase100-native-parity.test.ts": "e2e-style", "live-acp-codex.test.ts": "e2e-style",
   "physical-send.test.ts": "adapters", "pi-path-contract.test.ts": "clients",
   "pinned-http-content-coding.test.ts": "lib", "pinned-http.test.ts": "lib",
   "pinned-https-get.test.ts": "images", "plaintext-v2-agent-messages-server.test.ts": "server",
