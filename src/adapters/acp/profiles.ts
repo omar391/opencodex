@@ -100,7 +100,21 @@ const ANTIGRAVITY_ACP: AcpProviderProfile = {
   binEnv: "OPENCODEX_ACP_ANTIGRAVITY_BIN",
 };
 
-const PROFILES: readonly AcpProviderProfile[] = [DEVIN_ACP, ANTIGRAVITY_ACP];
+const OPENCODE_ACP: AcpProviderProfile = {
+  providerId: "opencode-acp",
+  label: "OpenCode (ACP agent)",
+  // `opencode acp` serves the agent's own harness over stdio; model selection
+  // goes through the session's advertised config options like the other ACP
+  // profiles — the CLI keeps whatever providers/models the user configured.
+  binaryCandidates: ["opencode", "opencode.exe"],
+  buildArgs: () => ["acp"],
+  canonicalBaseUrl: "https://opencode.ai",
+  installHint: "Install OpenCode (`npm i -g opencode-ai` or `brew install opencode`), then run `opencode auth login`.",
+  modelConfigId: "model",
+  binEnv: "OPENCODEX_ACP_OPENCODE_BIN",
+};
+
+const PROFILES: readonly AcpProviderProfile[] = [DEVIN_ACP, ANTIGRAVITY_ACP, OPENCODE_ACP];
 
 const profileById = new Map(PROFILES.map(p => [p.providerId, p]));
 

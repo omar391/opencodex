@@ -346,8 +346,8 @@ require that context independently of request construction.
 ## ACP agent-delegation wire
 
 The `acp` wire in `src/adapters/registry.ts` constructs `src/adapters/acp/adapter.ts`, a
-spawn-based Agent Client Protocol transport for agents that run their own harness (`devin acp`
-today; profiles live in `src/adapters/acp/profiles.ts`). One turn is initialize -> session/new or
+spawn-based Agent Client Protocol transport for agents that run their own harness (`devin acp`,
+`agy acp`, `opencode acp`; profiles live in `src/adapters/acp/profiles.ts`). One turn is initialize -> session/new or
 session/load -> session/prompt over newline-delimited JSON-RPC on the child's stdio; framing and
 event mapping stay pure in `src/adapters/acp/protocol.ts`, lifecycle and reaping in
 `src/adapters/acp/turn.ts`.
