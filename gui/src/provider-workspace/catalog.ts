@@ -58,6 +58,8 @@ export interface WorkspaceProvider {
   note?: string;
   /** ACP agents only: explicit agent CLI binary path (config > env > PATH > T3). */
   acpBinaryPath?: string;
+  /** ACP agents only: allow agent tool calls instead of cancelling permission requests. */
+  acpAllowTools?: boolean;
   allowPrivateNetwork?: boolean;
   preserveResponsesReasoningContent?: boolean;
   requestPacing?: {
