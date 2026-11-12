@@ -106,21 +106,22 @@ describe("acp protocol", () => {
     expect(history).not.toContain("CODEX HARNESS");
   });
 
-  test("buildAcpHistory relabels Codex injections as client instructions", () => {
+  test("buildAcpHistory relabels project instructions, drops Codex global harness", () => {
     const ctx = parsed().context;
     ctx.messages.unshift(
-      { role: "user", content: "# AGENTS.md instructions\n\n<INSTRUCTIONS>\nrepo rules for agents\n</INSTRUCTIONS>", timestamp: 0 } as never,
+      { role: "user", content: "# AGENTS.md instructions\n\n<INSTRUCTIONS>\nload every codex skill\n</INSTRUCTIONS>", timestamp: 0 } as never,
+      { role: "user", content: "# AGENTS.md instructions for /repo/app\n\n<INSTRUCTIONS>\nrepo rules for agents\n</INSTRUCTIONS>", timestamp: 0 } as never,
       { role: "user", content: "<environment_context><cwd>/tmp/x</cwd></environment_context>", timestamp: 0 } as never,
     );
-    const history = buildAcpHistory(ctx, 4);
-    // Delivered once, labeled — not laundered as user speech.
+    const history = buildAcpHistory(ctx, 5);
+    // Project + environment context delivered once, labeled — not user speech.
     expect(history).toContain("[Client instructions]");
     expect(history).toContain("repo rules for agents");
     expect(history).toContain("environment_context");
-    const userSection = history.slice(history.indexOf("[Conversation"));
-    expect(history.indexOf("[Client instructions]")).toBeLessThan(history.indexOf("[User]"));
-    expect(userSection).not.toContain("AGENTS.md instructions");
-    expect(userSection).not.toContain("environment_context");
+    // Codex's global harness file (~/.codex/AGENTS.md) never reaches the agent.
+    expect(history).not.toContain("load every codex skill");
+    const clientSection = history.slice(0, history.indexOf("[User]"));
+    expect(clientSection).not.toContain("[User]");
     expect(history).toContain("earlier question");
   });
 

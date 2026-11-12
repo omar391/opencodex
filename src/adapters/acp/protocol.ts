@@ -162,15 +162,23 @@ export function buildAcpPrompt(context: OcxContext): Array<Record<string, unknow
 // instructions` blocks and tagged sections (`<environment_context>`,
 // `<permissions instructions>`, …). They are client instructions, not user
 // speech — laundered into `[User]` history they read as conversation. Like
-// T3's own instruction envelope, they are delivered once under a labeled
-// `[Client instructions]` fence so the agent treats them as operator context.
-const CODEX_AGENTS_MD_BLOCK = /# AGENTS\.md instructions(?: for [^\n]*)?\n+<INSTRUCTIONS>\n?[\s\S]*?\n?<\/INSTRUCTIONS>/g;
+// T3's own instruction envelope, project-scoped instructions are delivered
+// once under a labeled `[Client instructions]` fence.
+//
+// The pathless `# AGENTS.md instructions` form is Codex's GLOBAL harness file
+// (~/.codex/AGENTS.md): runtime rules for Codex's own agent ($skills,
+// spawn_agent, goal workflows) that a foreign ACP agent cannot execute —
+// forwarding it makes the agent attempt Codex-only machinery and stall. The
+// `for <path>` form names a project directory and IS forwarded.
+const CODEX_AGENTS_MD_PROJECT = /# AGENTS\.md instructions for [^\n]*\n+<INSTRUCTIONS>\n?[\s\S]*?\n?<\/INSTRUCTIONS>/g;
+const CODEX_AGENTS_MD_GLOBAL = /# AGENTS\.md instructions\n+<INSTRUCTIONS>\n?[\s\S]*?\n?<\/INSTRUCTIONS>/g;
 const CODEX_TAGGED_SECTION = /<([a-zA-Z_][a-zA-Z0-9_ -]*(?:instructions|_context)[a-zA-Z0-9_ -]*)>[\s\S]*?<\/\1>/g;
 
 function extractCodexContext(text: string): { clean: string; injections: string[] } {
   const injections: string[] = [];
   const clean = text
-    .replace(CODEX_AGENTS_MD_BLOCK, (m) => (injections.push(m.trim()), ""))
+    .replace(CODEX_AGENTS_MD_PROJECT, (m) => (injections.push(m.trim()), ""))
+    .replace(CODEX_AGENTS_MD_GLOBAL, "")
     .replace(CODEX_TAGGED_SECTION, (m) => (injections.push(m.trim()), ""))
     .trim();
   return { clean, injections };
