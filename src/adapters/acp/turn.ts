@@ -42,6 +42,7 @@ import {
   acpSessionPoolKey,
   acpSessionRequest,
   acpSessionSend,
+  acpThreadPoolKey,
   adoptAcpSession,
   getPooledAcpSession,
   noteAcpSessionActivity,
@@ -146,11 +147,21 @@ export async function runAcpTurn(input: {
 
   // Warm path: the continuation state's sessionId belongs to a live pooled
   // agent — skip spawn/initialize/session-load entirely and prompt in place.
-  const poolKey = poolingAllowed && prior.sessionId && input.providerId
-    ? acpSessionPoolKey(input.providerId, prior.sessionId)
-    : undefined;
-  const pooled = poolKey ? getPooledAcpSession(poolKey) : undefined;
-  if (pooled && pooled.cwd === cwd && pooled.binary === binary) {
+  // Clients that never chain previous_response_id (Codex store:false) instead
+  // affinity on the request's own thread id, which the pool aliases at adopt.
+  // A compaction turn skips the warm lookup (its rewritten history must seed a
+  // fresh session) but still claims the thread alias so later turns land on
+  // the post-compaction session, not the stale pre-compaction one.
+  const ownThreadId = parsed._codexOwnThreadId ?? parsed._clientThreadId;
+  const lookupAffinity = parsed._compactionRequest ? undefined : ownThreadId;
+  const warmKey = (key: string | undefined) => {
+    if (!key || !poolingAllowed || !input.providerId) return undefined;
+    const session = getPooledAcpSession(key);
+    return session && session.cwd === cwd && session.binary === binary ? session : undefined;
+  };
+  const pooled = warmKey(prior.sessionId && input.providerId ? acpSessionPoolKey(input.providerId, prior.sessionId) : undefined)
+    ?? warmKey(lookupAffinity && input.providerId ? acpThreadPoolKey(input.providerId, lookupAffinity) : undefined);
+  if (pooled) {
     return runPooledAcpTurn({ profile, parsed, incoming, emit, cwd, session: pooled, deps, toolsAllowed });
   }
 
@@ -241,6 +252,7 @@ export async function runAcpTurn(input: {
           configIds: sessionConfigIds,
           child,
           leftoverBuffer: buffer,
+          aliases: ownThreadId ? [acpThreadPoolKey(input.providerId, ownThreadId)] : undefined,
         }) !== undefined;
       }
       if (!adopted) child.stdout.destroy();

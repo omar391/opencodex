@@ -253,9 +253,9 @@ describe("acp adapter runTurn", () => {
           send({ jsonrpc: "2.0", id: ACP_INITIALIZE_ID, result: { protocolVersion: 1, agentCapabilities: { loadSession: true } } });
         } else if (s.includes('"id":2,')) {
           send({ jsonrpc: "2.0", id: ACP_SESSION_ID, result: { sessionId: "sess-warm", modes: { currentModeId: "accept-edits" } } });
-        } else if (s.includes('"id":3,') || s.includes('"id":100,')) {
-          // Cold path prompt id is 3; the pooled path assigns ids from 100.
-          const id = s.includes('"id":100,') ? 100 : ACP_PROMPT_ID;
+        } else if (s.includes('"method":"session/prompt"')) {
+          // Cold path prompt id is 3; pooled turns assign ids from 100 upward.
+          const id = Number(/"id":(\d+)/.exec(s)?.[1] ?? ACP_PROMPT_ID);
           send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "sess-warm", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "WARM-OK" } } } });
           send({ jsonrpc: "2.0", id, result: { stopReason: "end_turn", usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 } } });
         }
@@ -272,7 +272,7 @@ describe("acp adapter runTurn", () => {
       sessionPool: true,
     });
 
-    const first = await collect(adapter, parsed());
+    const first = await collect(adapter, parsed({ _codexOwnThreadId: "thr-1" }));
     const done1 = first.find(e => e.type === "done") as Extract<AdapterEvent, { type: "done" }> | undefined;
     expect(done1?.providerState?.acp?.sessionId).toBe("sess-warm");
     expect(spawns).toBe(1);
@@ -298,6 +298,16 @@ describe("acp adapter runTurn", () => {
     expect(warmLines).not.toContain('"method":"session/new"');
     expect(warmLines).not.toContain('"method":"session/load"');
     expect(warmLines).toContain('"method":"session/prompt"');
+
+    // Codex store:false shape: no continuation state, only the thread id —
+    // the pool's thread alias must still find the warm session.
+    const linesAfterSecond = lines.length;
+    const third = await collect(adapter, parsed({ _codexOwnThreadId: "thr-1" }));
+    expect(third.some(e => e.type === "done")).toBe(true);
+    expect(spawns).toBe(1);
+    const thirdLines = lines.slice(linesAfterSecond).join("\n");
+    expect(thirdLines).not.toContain('"method":"initialize"');
+    expect(thirdLines).toContain('"method":"session/prompt"');
     resetAcpSessionPool();
   });
 });

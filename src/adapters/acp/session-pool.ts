@@ -33,6 +33,15 @@ export function acpSessionPoolKey(providerId: string, sessionId: string): string
   return `${providerId}:${sessionId}`;
 }
 
+/**
+ * Thread affinity key for clients that never chain previous_response_id
+ * (Codex sends store:false + full history): the request's own thread id keeps
+ * one warm agent session per conversation instead of one per response.
+ */
+export function acpThreadPoolKey(providerId: string, threadId: string): string {
+  return `${providerId}:thread:${threadId}`;
+}
+
 /** Per-turn callbacks the pooled session routes agent frames into. */
 export interface PooledAcpTurnHandlers {
   onUpdate: (update: Record<string, unknown>) => void;
@@ -44,6 +53,8 @@ export interface PooledAcpTurnHandlers {
 
 export interface PooledAcpSession {
   key: string;
+  /** Every pool-map key that resolves to this session (session id + thread alias). */
+  keys: string[];
   providerId: string;
   binary: string;
   cwd: string;
@@ -74,7 +85,7 @@ export function getPooledAcpSession(key: string): PooledAcpSession | undefined {
 }
 
 export function pooledSessionCount(): number {
-  return pool.size;
+  return new Set(pool.values()).size;
 }
 
 /** Test hook: drop every pooled session. */
@@ -111,7 +122,7 @@ export function dropAcpSession(key: string): void {
   const session = pool.get(key);
   if (!session) return;
   session.dead = true;
-  pool.delete(key);
+  for (const k of session.keys) pool.delete(k);
   if (session.idleTimer) clearTimeout(session.idleTimer);
   for (const resolve of session.pending.values()) {
     resolve({ jsonrpc: "2.0", id: -1, error: { code: -32000, message: "ACP session process exited" } });
@@ -207,7 +218,7 @@ function wireSession(session: PooledAcpSession): void {
   const onDead = (detail: string) => {
     if (session.dead) return;
     session.dead = true;
-    pool.delete(session.key);
+    for (const k of session.keys) pool.delete(k);
     if (session.idleTimer) clearTimeout(session.idleTimer);
     for (const resolve of session.pending.values()) {
       resolve({ jsonrpc: "2.0", id: -1, error: { code: -32000, message: `ACP session process ${detail}` } });
@@ -247,13 +258,19 @@ export function adoptAcpSession(init: {
   configIds: string[];
   child: ChildProcessWithoutNullStreams;
   leftoverBuffer?: string;
+  /** Extra pool keys (e.g. thread affinity) resolving to this same session. */
+  aliases?: string[];
 }): PooledAcpSession | undefined {
   if (!acpSessionPoolEnabled()) return undefined;
-  const existing = pool.get(init.key);
-  if (existing) dropAcpSession(init.key);
+  const keys = [init.key, ...(init.aliases ?? []).filter(k => k !== init.key)];
+  for (const k of keys) {
+    const existing = pool.get(k);
+    if (existing) dropAcpSession(k);
+  }
   evictIfNeeded();
   const session: PooledAcpSession = {
     key: init.key,
+    keys,
     providerId: init.providerId,
     binary: init.binary,
     cwd: init.cwd,
@@ -268,7 +285,7 @@ export function adoptAcpSession(init: {
     lastUsed: Date.now(),
     dead: false,
   };
-  pool.set(session.key, session);
+  for (const k of keys) pool.set(k, session);
   wireSession(session);
   // The leftover may already hold complete lines.
   if (session.buffer) {
