@@ -301,6 +301,20 @@ export async function runAcpTurn(input: {
         { status: 502, errorType: "upstream_error", code: "cli_exit", retryable: true },
       );
     });
+    // "exit" fires on process termination even while a grandchild still holds
+    // the stdio pipes — "close" alone can lag indefinitely when the agent
+    // spawned a tool subprocess that outlives it.
+    child.once("exit", (code) => {
+      if (settled) return;
+      flush(buffer);
+      buffer = "";
+      const detail = stderrTail.trim().slice(-400);
+      finish(
+        `${profile.label} exited (code ${code ?? "null"}) before answering the prompt` +
+          (detail ? `: ${detail}` : "."),
+        { status: 502, errorType: "upstream_error", code: "cli_exit", retryable: true },
+      );
+    });
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk: string) => {
       stderrTail = (stderrTail + chunk).slice(-MAX_STDERR_TAIL);

@@ -227,6 +227,9 @@ function wireSession(session: PooledAcpSession): void {
     session.turn?.onDead(session.stderrTail.trim().slice(-400) || detail);
   };
   session.child.on("close", (code) => onDead(`exited (code ${code ?? "null"})`));
+  // "exit" fires even while a grandchild holds the stdio pipes; "close" can
+  // lag until every pipe holder exits.
+  session.child.once("exit", (code) => onDead(`exited (code ${code ?? "null"})`));
   session.child.on("error", () => onDead("failed"));
 }
 
