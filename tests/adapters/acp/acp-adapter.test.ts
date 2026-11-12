@@ -14,6 +14,7 @@ import { PassThrough } from "node:stream";
 import { createAcpAdapter } from "../../../src/adapters/acp/adapter";
 import { ACP_INITIALIZE_ID, ACP_PROMPT_ID, ACP_SESSION_ID, buildAcpPrompt, buildAcpHistory, acpUpdateToEvents, mapAcpUsage, sessionLoadFrame, composeEffortModelId } from "../../../src/adapters/acp/protocol";
 import { clearAcpBinaryCache, resolveAcpBinaryInfo, resolveAcpProfile, acpProfiles, resolveT3ToolBinary } from "../../../src/adapters/acp/profiles";
+import { pooledSessionCount, resetAcpSessionPool } from "../../../src/adapters/acp/session-pool";
 import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig } from "../../../src/types";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { SpawnOptions } from "node:child_process";
@@ -239,5 +240,64 @@ describe("acp adapter runTurn", () => {
     const adapter = createAcpAdapter(PROVIDER, { providerId: "devin-acp" }, { which: (() => undefined) as never, homeDir: "/nonexistent-ocx-home" });
     const events = await collect(adapter, parsed());
     expect(events[0]).toMatchObject({ type: "error", code: "cli_not_found" });
+  });
+
+  test("second turn reuses the pooled session without respawning", async () => {
+    resetAcpSessionPool();
+    clearAcpBinaryCache();
+    const warmScript = (send: (f: Record<string, unknown>) => void, stdin: PassThrough) => {
+      stdin.on("data", (d: Buffer) => {
+        const s = d.toString();
+        // Ids are comma-terminated: '"id":100' would otherwise match '"id":1'.
+        if (s.includes('"id":1,')) {
+          send({ jsonrpc: "2.0", id: ACP_INITIALIZE_ID, result: { protocolVersion: 1, agentCapabilities: { loadSession: true } } });
+        } else if (s.includes('"id":2,')) {
+          send({ jsonrpc: "2.0", id: ACP_SESSION_ID, result: { sessionId: "sess-warm", modes: { currentModeId: "accept-edits" } } });
+        } else if (s.includes('"id":3,') || s.includes('"id":100,')) {
+          // Cold path prompt id is 3; the pooled path assigns ids from 100.
+          const id = s.includes('"id":100,') ? 100 : ACP_PROMPT_ID;
+          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "sess-warm", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "WARM-OK" } } } });
+          send({ jsonrpc: "2.0", id, result: { stopReason: "end_turn", usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 } } });
+        }
+      });
+    };
+    let spawns = 0;
+    const { child, lines } = fakeChild(warmScript);
+    const adapter = createAcpAdapter(PROVIDER, { providerId: "devin-acp" }, {
+      spawn: (() => { spawns += 1; return child; }) as never,
+      which: (() => "/fake/devin") as never,
+      timeoutMs: 5_000,
+      killGraceMs: 10,
+      reapTimeoutMs: 20,
+      sessionPool: true,
+    });
+
+    const first = await collect(adapter, parsed());
+    const done1 = first.find(e => e.type === "done") as Extract<AdapterEvent, { type: "done" }> | undefined;
+    expect(done1?.providerState?.acp?.sessionId).toBe("sess-warm");
+    expect(spawns).toBe(1);
+    // Adoption keeps the agent alive — no kill, one pooled session.
+    expect((child as unknown as { killed: boolean }).killed).toBe(false);
+    expect(pooledSessionCount()).toBe(1);
+
+    const linesAfterFirst = lines.length;
+    const secondParsed = parsed({
+      context: { ...parsed().context, messages: [{ role: "user", content: "follow up", timestamp: 4 }] },
+      _providerContinuation: { acp: { sessionId: "sess-warm", modelId: "swe-2-high" } },
+    } as Partial<OcxParsedRequest>);
+    const second = await collect(adapter, secondParsed);
+    const done2 = second.find(e => e.type === "done") as Extract<AdapterEvent, { type: "done" }> | undefined;
+    expect(done2).toBeDefined();
+    expect(done2?.providerState?.acp?.sessionId).toBe("sess-warm");
+    expect(second.some(e => e.type === "text_delta" && (e as { text?: string }).text === "WARM-OK")).toBe(true);
+
+    // Warm turn sent only prompt frames — no initialize/session handshake, no respawn.
+    expect(spawns).toBe(1);
+    const warmLines = lines.slice(linesAfterFirst).join("\n");
+    expect(warmLines).not.toContain('"method":"initialize"');
+    expect(warmLines).not.toContain('"method":"session/new"');
+    expect(warmLines).not.toContain('"method":"session/load"');
+    expect(warmLines).toContain('"method":"session/prompt"');
+    resetAcpSessionPool();
   });
 });
