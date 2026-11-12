@@ -42,6 +42,9 @@ const TURN_TIMEOUT_MS = 10 * 60 * 1000;
 const KILL_GRACE_MS = 2_000;
 const REAP_MS = 5_000;
 const MAX_STDERR_TAIL = 4_096;
+// ACP agents go quiet for minutes during long tool runs; heartbeats keep the
+// upstream stall watchdog from killing a healthy turn.
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
 export type AcpSpawn = (
   binary: string,
@@ -155,6 +158,9 @@ export async function runAcpTurn(input: {
     const promptBlocks: Array<Record<string, unknown>> = [];
 
     const turnTimer = setTimeout(() => finish(`ACP turn exceeded ${deps.timeoutMs ?? TURN_TIMEOUT_MS}ms`), deps.timeoutMs ?? TURN_TIMEOUT_MS);
+    const heartbeatTimer = setInterval(() => {
+      if (!settled) emit({ type: "heartbeat" });
+    }, HEARTBEAT_INTERVAL_MS);
     const onAbort = () => {
       if (sessionId) send(sessionCancelFrame(sessionId));
       finish(`${profile.label} turn was aborted.`);
@@ -191,6 +197,7 @@ export async function runAcpTurn(input: {
       if (settled) return;
       settled = true;
       clearTimeout(turnTimer);
+      clearInterval(heartbeatTimer);
       incoming.abortSignal?.removeEventListener("abort", onAbort);
       child.stdout.destroy();
       const state = sessionId ? continuationState({ sessionId, cwd, modelId }) : undefined;
