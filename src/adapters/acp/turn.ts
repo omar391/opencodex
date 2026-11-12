@@ -123,12 +123,12 @@ export async function runAcpTurn(input: {
   const modelId = profile.effortSuffix
     ? composeEffortModelId(parsed.modelId, parsed.options?.reasoning, profile.effortSuffix)
     : parsed.modelId;
-  const env = { ...baseScopedEnv(), ...(profile.buildEnv?.(provider.apiKey ?? "") ?? {}) };
+  const env = { ...baseScopedEnv(), ...(profile.buildEnv?.(provider.apiKey ?? "", binary) ?? {}) };
 
   await new Promise<void>((resolve) => {
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawnChild(binary, profile.buildArgs(modelId), { cwd, env });
+      child = spawnChild(binary, profile.buildArgs(modelId, binary), { cwd, env });
     } catch (error) {
       emit({
         type: "error",

@@ -51,7 +51,7 @@ export interface AcpProviderProfile {
    * Launch arguments for one ACP turn. `modelId` is the resolved wire model;
    * profiles that take a model flag should include it (e.g. ["acp","--model",id]).
    */
-  buildArgs: (modelId: string) => string[];
+  buildArgs: (modelId: string, binaryPath: string) => string[];
   /** Identity URL recorded as provider.baseUrl; never connected to. */
   canonicalBaseUrl: string;
   /** Install hint surfaced when the binary is missing. */
@@ -61,7 +61,7 @@ export interface AcpProviderProfile {
   /** Env var the profile consumes for a credential; absent means the agent owns its sign-in. */
   tokenEnv?: string;
   /** Extra child-process env layered over the scoped base env. */
-  buildEnv?: (apiKey: string) => Record<string, string>;
+  buildEnv?: (apiKey: string, binaryPath: string) => Record<string, string>;
 }
 
 const DEVIN_ACP: AcpProviderProfile = {
@@ -109,16 +109,22 @@ export function resolveT3AntigravityGeminiHome(home: string = homedir()): string
 const ANTIGRAVITY_ACP: AcpProviderProfile = {
   providerId: "antigravity-acp",
   label: "Google Antigravity (ACP agent)",
-  // Not a PATH binary: T3 Code's ACP registry installs it under ~/.t3/tools.
-  binaryCandidates: [],
+  // `agy` on PATH is the Antigravity CLI whose `acp` subcommand serves the full
+  // model catalog (Claude/GPT/Gemini) under the CLI's own sign-in. T3 Code's
+  // managed `agy_acp_server.par` is the narrower fallback — it exposes only
+  // Gemini models under oauth-personal.
+  binaryCandidates: ["agy"],
   t3ToolName: "antigravity-acp",
   t3BinaryName: "agy_acp_server.par",
-  buildArgs: () => [],
+  buildArgs: (_modelId, binaryPath) => binaryPath.endsWith("/agy") || binaryPath === "agy" ? ["acp"] : [],
   canonicalBaseUrl: "https://antigravity.google",
-  installHint: "Install Google Antigravity's ACP server (T3 Code's ACP registry provides `agy_acp_server.par` under ~/.t3/tools), then complete its Google sign-in.",
+  installHint: "Install Google Antigravity (`agy` CLI or T3 Code's ACP registry `agy_acp_server.par` under ~/.t3/tools), then complete its Google sign-in.",
   modelConfigId: "model",
   binEnv: "OPENCODEX_ACP_ANTIGRAVITY_BIN",
-  buildEnv: () => {
+  buildEnv: (_apiKey, binaryPath) => {
+    // GEMINI_HOME only applies to the .par server; the agy CLI keeps its own
+    // app-data dir (~/.gemini/antigravity-cli) and auth.
+    if (!(binaryPath.endsWith(".par") || binaryPath.includes("agy_acp_server"))) return {};
     const env: Record<string, string> = {};
     const geminiHome = resolveT3AntigravityGeminiHome();
     if (geminiHome) env.GEMINI_HOME = geminiHome;
