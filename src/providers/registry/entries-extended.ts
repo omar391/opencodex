@@ -1844,7 +1844,9 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
       "opencode/glm-5.3-flash-free",
       "opencode/mimo-v2.6-flash-free",
     ],
-    liveModels: false,
+    // Live: `opencode acp` advertises its full configured catalog through the
+    // session's model configOptions; the gather discovers it per binary.
+    liveModels: true,
     modelInputModalities: {
       "opencode/big-pickle": ["text"],
       "opencode/deepseek-v4.1-flash-free": ["text"],

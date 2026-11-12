@@ -1747,6 +1747,24 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
         message: `Connected. ${liveResult.models.length} models.`,
       });
     }
+    if (prov.adapter === "acp") {
+      const { resolveAcpProfile } = await import("../../adapters/acp/profiles");
+      const { discoverAcpAgentModels } = await import("../../adapters/acp/live-models");
+      const profile = resolveAcpProfile(name);
+      if (!profile) return jsonResponse({ ok: false, latencyMs: 0, error: "unknown ACP profile" });
+      const started = Date.now();
+      const live = await discoverAcpAgentModels({ profile, provider: prov, timeoutMs: 15_000 });
+      const latencyMs = Date.now() - started;
+      if (!live.ok) {
+        return jsonResponse({ ok: false, latencyMs, error: live.error });
+      }
+      return jsonResponse({
+        ok: true,
+        latencyMs,
+        models: live.models.length,
+        message: `Connected. ${live.models.length} models.`,
+      });
+    }
     if (prov.adapter === "qoder") {
       // A late success re-syncs the catalog through the same convergence every mutation uses.
       return (await import("./qoder-provider-probe")).probeQoderProvider(name, prov, apiKey, convergeCodexCatalog);

@@ -70,6 +70,8 @@ import { CODEBUDDY_PROFILES, type CodeBuddyProfile } from "../../adapters/codebu
 import { fetchCodeBuddyModels } from "../../adapters/codebuddy/live-models";
 import { resolveProfileByBaseUrl } from "../../adapters/coding-agent/profile";
 import { fetchDevinUsableModels } from "../../adapters/devin/live-models";
+import { discoverAcpAgentModels } from "../../adapters/acp/live-models";
+import { resolveAcpBinaryInfo, resolveAcpProfile } from "../../adapters/acp/profiles";
 import { resolveDevinApiBaseUrl } from "../../oauth/devin/api-base";
 import { resolveZedModels } from "../../providers/zed";
 import { isCanonicalOpenAiForwardProvider, OPENAI_API_PROVIDER_ID, OPENAI_CODEX_PROVIDER_ID } from "../../providers/openai-tiers";
@@ -273,6 +275,51 @@ export async function fetchProviderModelsWithAuth(
       }), "authoritative");
     }
     return observed(configured, "authoritative");
+  }
+  if (prov.adapter === "acp") {
+    const profile = resolveAcpProfile(name);
+    if (!profile) return observed(configured, "degraded");
+    // The agent's own session advertises its model select over ACP; the
+    // resolved binary path is the cache identity so an acpBinaryPath override
+    // or binary swap invalidates the roster like a credential change would.
+    const authorityIdentity = createHash("sha256")
+      .update(resolveAcpBinaryInfo(profile, undefined, { configuredPath: prov.acpBinaryPath })?.path ?? profile.providerId)
+      .digest("hex");
+    const fresh = getFreshCached(name, ttlMs, Date.now(), authorityIdentity);
+    if (fresh) {
+      return observed(withConfiguredRetention(
+        applyConfigHintsToCachedModels(name, prov, fresh, contextCap, metadataModelIdCaseFold, captured.effectiveAlias, metadataConfigDir, false),
+      ), "authoritative");
+    }
+    const scopedStale = getStaleCached(name, authorityIdentity);
+    if (isModelsFetchCoolingDown(name, undefined, undefined, authorityIdentity) && scopedStale) {
+      return observed(withConfiguredRetention(
+        applyConfigHintsToCachedModels(name, prov, scopedStale, contextCap, metadataModelIdCaseFold, captured.effectiveAlias, metadataConfigDir, false),
+      ), "degraded");
+    }
+    const live = await discoverAcpAgentModels({ profile, provider: prov });
+    if (live.ok) {
+      const discovered = live.models.map(model => ({
+        id: model.id,
+        provider: name,
+        ...catalogHintsFromProviderConfig(name, prov, model.id, contextCap, metadataModelIdCaseFold, captured.effectiveAlias, metadataConfigDir, false),
+      }));
+      const forCache = withConfiguredRetention(discovered, { retainComboTargets: false });
+      if (!setCached(name, forCache, Date.now(), cacheGeneration, authorityIdentity)) {
+        return observed(withConfiguredRetention(configured), "degraded");
+      }
+      markProviderDiscoveryOk(name, live.models.length);
+      return observed(withConfiguredRetention(forCache, { warnDrops: true }), "authoritative");
+    }
+    if (isCurrentCacheGeneration()) {
+      markModelsFetchFailure(name, undefined, authorityIdentity);
+      markProviderDiscoveryFailed(name, { reason: "provider" });
+      console.warn(`[opencodex] ACP model discovery failed for ${name}: ${live.error}; using stale/static catalog degradation.`);
+    }
+    const stale = getStaleCached(name, authorityIdentity);
+    return observed(withConfiguredRetention(
+      stale ? applyConfigHintsToCachedModels(name, prov, stale, contextCap, metadataModelIdCaseFold, captured.effectiveAlias, metadataConfigDir, false) : configured,
+    ), "degraded");
   }
   const auth: ModelsAuthResolution = prov.authMode === "oauth" && !mayResolveModelsOAuth(name, prov)
     ? { apiKey: undefined, observed: resolveAuth.kind === "observed" }
