@@ -1823,4 +1823,34 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     },
     note: "Google Antigravity as an AGENT over the Agent Client Protocol (`agy acp`, newline-delimited JSON-RPC on stdio) — not a model endpoint. Same delegation contract as devin-acp: the agent's own harness, tools and session memory answer the user's request; the client's system prompt, tool catalog and developer context are NOT forwarded, and agent tool activity is progress narration, never client tool calls. Binary resolution prefers the `agy` CLI on PATH (its built-in ACP server exposes the full Claude/GPT/Gemini catalog); T3 Code's managed `agy_acp_server.par` is not used because it exposes only Gemini models. The agent uses the CLI's own Google sign-in. Modes are the agent's own (default/auto_edit/yolo); session/request_permission is cancelled unless OPENCODEX_ACP_ALLOW_TOOLS=1 opts in. Subscription routing authorization flagged for maintainer review, same as claude-cli.",
   },
+  {
+    // OpenCode as an ACP agent — same delegation contract as devin-acp and
+    // antigravity-acp. `opencode acp` serves the agent's own harness; the
+    // catalog is whatever providers/models the user's opencode config holds,
+    // so the roster below is a seed, not authoritative.
+    id: "opencode-acp",
+    label: "OpenCode (ACP agent)",
+    adapter: "acp",
+    // Identity URL only: ACP transport is stdio, nothing connects here.
+    baseUrl: "https://opencode.ai",
+    authKind: "key",
+    keyOptional: true,
+    preserveCustomDestination: true,
+    dashboardUrl: "https://opencode.ai",
+    defaultModel: "opencode/big-pickle",
+    models: [
+      "opencode/big-pickle",
+      "opencode/deepseek-v4.1-flash-free",
+      "opencode/glm-5.3-flash-free",
+      "opencode/mimo-v2.6-flash-free",
+    ],
+    liveModels: false,
+    modelInputModalities: {
+      "opencode/big-pickle": ["text"],
+      "opencode/deepseek-v4.1-flash-free": ["text"],
+      "opencode/glm-5.3-flash-free": ["text"],
+      "opencode/mimo-v2.6-flash-free": ["text"],
+    },
+    note: "OpenCode as an AGENT over the Agent Client Protocol (`opencode acp`, newline-delimited JSON-RPC on stdio) — not a model endpoint. Same delegation contract as devin-acp: the agent's own harness, tools and session memory answer the user's request; the client's system prompt, tool catalog and developer context are NOT forwarded, and agent tool activity is progress narration, never client tool calls. Binary resolves on PATH (`opencode`); the agent uses the CLI's own provider auth (`opencode auth login`). session/request_permission is cancelled unless OPENCODEX_ACP_ALLOW_TOOLS=1 or the provider's Allow tools setting opts in. The model roster is a seed — opencode's real catalog comes from the user's own opencode config.",
+  },
 ];

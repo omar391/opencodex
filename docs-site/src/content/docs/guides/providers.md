@@ -1887,12 +1887,13 @@ translates the streamed updates into the response your client sees. Codex's own 
 prompt, developer messages, tool catalog, and tool results are **not** forwarded to the
 agent — the request text is all it receives.
 
-Two presets ship in the catalog's **ACP** tab:
+Three presets ship in the catalog's **ACP** tab:
 
 | Provider | Agent | Notes |
 | --- | --- | --- |
 | `devin-acp` | Devin CLI (`devin acp`) | Devin's own agent harness and session state |
 | `antigravity-acp` | Antigravity (`agy acp`) | Uses the Antigravity CLI's own Google sign-in |
+| `opencode-acp` | OpenCode (`opencode acp`) | Uses the OpenCode CLI's own provider auth (`opencode auth login`) |
 
 No API key is involved: the agent CLI owns authentication and billing through its own
 login. Add the provider from the dashboard's ACP tab, or write the row directly:
@@ -1910,8 +1911,8 @@ login. Add the provider from the dashboard's ACP tab, or write the row directly:
 The adapter locates the agent executable before each turn, in this order:
 
 1. **`acpBinaryPath`** on the provider row (Settings → Agent binary path in the dashboard)
-2. **`OPENCODEX_ACP_DEVIN_BIN`** / **`OPENCODEX_ACP_ANTIGRAVITY_BIN`** environment variables
-3. **PATH** (`devin`, `devin.exe`, `devin.cmd`, …)
+2. **`OPENCODEX_ACP_DEVIN_BIN`** / **`OPENCODEX_ACP_ANTIGRAVITY_BIN`** / **`OPENCODEX_ACP_OPENCODE_BIN`** environment variables
+3. **PATH** (`devin`, `agy`, `opencode`, plus `.exe`/`.cmd` variants)
 4. **T3 Code's managed tools tree** (`~/.t3/tools/…`) when T3 Code is installed — optional,
    never required
 

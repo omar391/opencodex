@@ -171,6 +171,8 @@ describe("acp protocol", () => {
   test("profiles resolve by provider id", () => {
     expect(resolveAcpProfile("devin-acp")?.binaryCandidates).toContain("devin");
     expect(resolveAcpProfile("antigravity-acp")?.binaryCandidates).toContain("agy");
+    expect(resolveAcpProfile("opencode-acp")?.binaryCandidates).toContain("opencode");
+    expect(resolveAcpProfile("opencode-acp")?.buildArgs("opencode/big-pickle")).toEqual(["acp"]);
     expect(resolveAcpProfile("antigravity-acp")?.t3ToolName).toBeUndefined();
     expect(resolveAcpProfile("nope")).toBeUndefined();
     expect(acpProfiles().length).toBeGreaterThan(0);
