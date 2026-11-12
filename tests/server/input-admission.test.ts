@@ -379,8 +379,8 @@ describe("combo target input admission", () => {
 
   test("an undeclared output allowance still reserves default headroom", () => {
     // 10% of the 128k window = 12.8k, capped by the target's 32k output ceiling to 12.8k.
-    // 150k input cannot leave that room; 100k can.
-    const refused = checkComboTargetInputAdmission(withoutMaxOutput(150_000), capped, "custom", "m");
+    // 110k clears the ceiling on the raw figure but not once the reserve is added; 100k can.
+    const refused = checkComboTargetInputAdmission(withoutMaxOutput(110_000), capped, "custom", "m");
     expect(refused.admitted).toBe(false);
     expect(refused.requiredOutputHeadroom).toBe(12_800);
     const fits = checkComboTargetInputAdmission(withoutMaxOutput(100_000), capped, "custom", "m");
@@ -446,4 +446,24 @@ describe("devin adapter window fallback", () => {
     const other: OcxProviderConfig = { adapter: "openai-chat", baseUrl: "https://example.test/v1" };
     expect(resolveInputCeiling(other, "custom", "swe-2-flash")).toBeNull();
   });
+});
+
+test("a margin-only input-cap refusal names the cap, not the window", async () => {
+  const { inputAdmissionRefusalMessage } = await import("../../src/server/responses/input-admission");
+  const { clientFacingModelLabel } = await import("../../src/lib/error-destination");
+  // Raw estimate sits under the 90k input cap; the 1.1x margin pushes it over, so the cap --
+  // not the 128k window -- is the binding limit and the message must say so.
+  const provider: OcxProviderConfig = {
+    adapter: "openai-chat", baseUrl: "https://provider.example/v1",
+    modelContextWindows: { m: 128_000 }, modelMaxInputTokens: { m: 90_000 },
+    modelMaxOutputTokens: { m: 32_000 },
+  };
+  const parsed = { ...request([userText(asciiTokens(85_000))]), modelId: "m", options: {} };
+  const result = checkComboTargetInputAdmission(parsed, provider, "custom", "m");
+  expect(result.admitted).toBe(false);
+  expect(result.estimatedTokens).toBeLessThanOrEqual(90_000);
+  expect(result.admissionEstimateTokens).toBeGreaterThan(90_000);
+  const message = inputAdmissionRefusalMessage(result, clientFacingModelLabel("client-model"));
+  expect(message).toContain("input limit of client-model (90000 tokens");
+  expect(message).not.toContain("cannot fit the context window");
 });
