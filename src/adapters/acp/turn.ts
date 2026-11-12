@@ -57,6 +57,52 @@ const MAX_STDERR_TAIL = 4_096;
 // upstream stall watchdog from killing a healthy turn.
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
+// Agents report billing exhaustion as ordinary assistant text, not a protocol
+// error — without interception the notice streams out as a successful answer
+// and combo failover never engages. Hold the first text deltas briefly: a
+// short reply that is entirely a quota/billing notice becomes a failover
+// error; anything longer or mixed with other content flushes and streams on.
+const ACP_QUOTA_TEXT_RE = /individual quota|quota (?:reached|exceeded|exhausted)|usage limits? (?:reached|exceeded)|rate.?limits?(?:ed)?\b|insufficient (?:credits|balance|quota)|upgrade your subscription|resets? in \d/i;
+const TEXT_GATE_MAX_CHARS = 1_500;
+const TEXT_GATE_MS = 1_200;
+
+function createAcpTextGate(emit: (event: AdapterEvent) => void) {
+  let pending = "";
+  let open = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const flush = () => {
+    if (timer) { clearTimeout(timer); timer = undefined; }
+    if (pending) {
+      const text = pending;
+      pending = "";
+      emit({ type: "text_delta", text } as AdapterEvent);
+    }
+  };
+  const gated = (event: AdapterEvent): void => {
+    if (event.type === "text_delta" && typeof event.text === "string" && event.text.length > 0) {
+      if (!open) {
+        pending += event.text;
+        if (pending.length >= TEXT_GATE_MAX_CHARS) { open = true; flush(); }
+        else if (!timer) {
+          timer = setTimeout(() => { open = true; flush(); }, TEXT_GATE_MS);
+          timer.unref?.();
+        }
+        return;
+      }
+    } else if (!open && pending) {
+      open = true;
+      flush();
+    }
+    emit(event);
+  };
+  return {
+    emit: gated,
+    /** Buffered agent text while the gate never opened; undefined once flushed. */
+    heldText: (): string | undefined => (open ? undefined : pending || undefined),
+    close: () => { if (timer) clearTimeout(timer); },
+  };
+}
+
 export type AcpSpawn = (
   binary: string,
   args: string[],
@@ -113,7 +159,9 @@ export async function runAcpTurn(input: {
   cwd: string;
   deps?: AcpTurnDeps;
 }): Promise<void> {
-  const { profile, binary, provider, parsed, incoming, emit, cwd } = input;
+  const { profile, binary, provider, parsed, incoming, cwd } = input;
+  const textGate = createAcpTextGate(input.emit);
+  const emit = textGate.emit;
   const deps = input.deps ?? {};
   const toolsAllowed = deps.toolsAllowed ?? acpToolsAllowed();
   // Pooling is on for real spawns; a custom spawn seam means a test harness
@@ -241,8 +289,10 @@ export async function runAcpTurn(input: {
       // A clean completion hands the live agent + session to the pool so the
       // next turn in this thread skips spawn/handshake/session-load entirely.
       // Errors and aborts still reap the process.
+      const quotaHeld = !errorMessage ? textGate.heldText() : undefined;
+      const quotaExceeded = quotaHeld !== undefined && ACP_QUOTA_TEXT_RE.test(quotaHeld);
       let adopted = false;
-      if (!errorMessage && sessionId && poolingAllowed && input.providerId) {
+      if (!errorMessage && !quotaExceeded && sessionId && poolingAllowed && input.providerId) {
         adopted = adoptAcpSession({
           key: acpSessionPoolKey(input.providerId, sessionId),
           providerId: input.providerId,
@@ -257,12 +307,13 @@ export async function runAcpTurn(input: {
       }
       if (!adopted) child.stdout.destroy();
       const state = sessionId ? continuationState({ sessionId, cwd, modelId }) : undefined;
-      if (errorMessage) {
+      textGate.close();
+      if (errorMessage || quotaExceeded) {
         emit({
           type: "error",
-          message: errorMessage,
+          message: errorMessage ?? `${profile.label} reported quota exhaustion: ${quotaHeld!.trim().slice(0, 200)}`,
           ...(usage ? { usage } : {}),
-          ...(extra ?? {}),
+          ...(errorMessage ? (extra ?? {}) : { status: 429, errorType: "rate_limit_error", code: "acp_quota_exhausted", retryable: true }),
         });
       } else {
         emit({
@@ -505,7 +556,9 @@ async function runPooledAcpTurn(input: {
   deps: AcpTurnDeps;
   toolsAllowed: boolean;
 }): Promise<void> {
-  const { profile, parsed, incoming, emit, cwd, session, deps, toolsAllowed } = input;
+  const { profile, parsed, incoming, cwd, session, deps, toolsAllowed } = input;
+  const textGate = createAcpTextGate(input.emit);
+  const emit = textGate.emit;
   const modelId = profile.effortSuffix
     ? composeEffortModelId(parsed.modelId, parsed.options?.reasoning, profile.effortSuffix)
     : parsed.modelId;
@@ -547,12 +600,15 @@ async function runPooledAcpTurn(input: {
         noteAcpSessionActivity(session);
         release();
         const state = continuationState({ sessionId, cwd, modelId });
-        if (errorMessage) {
+        const quotaHeld = !errorMessage ? textGate.heldText() : undefined;
+        const quotaExceeded = quotaHeld !== undefined && ACP_QUOTA_TEXT_RE.test(quotaHeld);
+        textGate.close();
+        if (errorMessage || quotaExceeded) {
           emit({
             type: "error",
-            message: errorMessage,
+            message: errorMessage ?? `${profile.label} reported quota exhaustion: ${quotaHeld!.trim().slice(0, 200)}`,
             ...(usage ? { usage } : {}),
-            ...(extra ?? {}),
+            ...(errorMessage ? (extra ?? {}) : { status: 429, errorType: "rate_limit_error", code: "acp_quota_exhausted", retryable: true }),
           });
         } else {
           emit({
