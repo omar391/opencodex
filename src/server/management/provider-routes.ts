@@ -446,6 +446,11 @@ function applyProviderPatchFields(
     else delete next.acpBinaryPath;
     touched = true;
   }
+  if (Object.hasOwn(rawBody, "acpAllowTools")) {
+    if (typeof rawBody.acpAllowTools !== "boolean") return { error: "acpAllowTools must be a boolean" };
+    next.acpAllowTools = rawBody.acpAllowTools;
+    touched = true;
+  }
   if (Object.hasOwn(rawBody, "allowPrivateNetwork")) {
     if (typeof rawBody.allowPrivateNetwork !== "boolean") return { error: "allowPrivateNetwork must be a boolean" };
     next.allowPrivateNetwork = rawBody.allowPrivateNetwork;

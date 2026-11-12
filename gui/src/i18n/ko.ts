@@ -3246,6 +3246,8 @@ export const ko: Record<TKey, string> = {
   "pws.cursorTransportHttp1": "HTTP/1.1 (프록시 호환)",
   "pws.cursorTransportDesc": "프록시가 Cursor의 HTTP/2 스트림을 안정적으로 전달하지 못할 때 HTTP/1.1을 사용하세요.",
   "pws.acpBinaryPath": "에이전트 바이너리 경로",
+"pws.acpAllowTools": "Allow agent tools",
+"pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
   "pws.acpBinaryPlaceholder": "비워 두면 자동 감지",
   "pws.acpBinaryHint": "이 에이전트의 PATH 및 T3 관리 도구 탐지를 재정의합니다. 비워 두면 자동 감지됩니다.",
   "pws.acpBinaryResolved": "확인된 바이너리:",

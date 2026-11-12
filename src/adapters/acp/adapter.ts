@@ -11,7 +11,7 @@ import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig } from "../../ty
 import type { AdapterRequest, IncomingMeta, ProviderAdapter } from "../base";
 import type { AdapterFactoryContext } from "../registry";
 import { resolveAcpBinary, resolveAcpProfile } from "./profiles";
-import { runAcpTurn, type AcpTurnDeps } from "./turn";
+import { runAcpTurn, acpToolsAllowed, type AcpTurnDeps } from "./turn";
 
 export type AcpAdapterDeps = AcpTurnDeps;
 
@@ -81,7 +81,7 @@ export function createAcpAdapter(provider: OcxProviderConfig, context: AdapterFa
         incoming,
         emit,
         cwd: sessionCwd(parsed),
-        deps,
+        deps: { ...deps, toolsAllowed: provider.acpAllowTools ?? acpToolsAllowed() },
       });
     },
   };

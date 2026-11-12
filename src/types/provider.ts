@@ -811,6 +811,12 @@ export interface OcxProviderConfig {
    * or absent falls through to those scans.
    */
   acpBinaryPath?: string;
+  /**
+   * ACP agents only (`adapter: "acp"`): allow the agent's tool calls instead of
+   * auto-cancelling `session/request_permission`. Wins over
+   * OPENCODEX_ACP_ALLOW_TOOLS when set; unset defers to the env gate.
+   */
+  acpAllowTools?: boolean;
   /** Strip one trailing bracketed suffix from model ids before sending them upstream. */
   modelSuffixBracketStrip?: boolean;
   /**

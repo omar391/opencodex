@@ -15,6 +15,7 @@ export interface ProviderPayloadForm {
   project?: string;
   location?: string;
   acpBinaryPath?: string;
+  acpAllowTools?: boolean;
 }
 
 export interface ProviderPostPreset {
@@ -91,6 +92,7 @@ export interface ProviderPayload {
   location?: string;
   liveModels?: boolean;
   acpBinaryPath?: string;
+  acpAllowTools?: boolean;
 }
 
 export function buildProviderPayload(form: ProviderPayloadForm): ProviderPayload {
@@ -119,6 +121,9 @@ export function buildProviderPayload(form: ProviderPayloadForm): ProviderPayload
   }
   if (form.adapter.trim() === "acp" && form.acpBinaryPath?.trim()) {
     provider.acpBinaryPath = form.acpBinaryPath.trim();
+  }
+  if (form.adapter.trim() === "acp" && form.acpAllowTools !== undefined) {
+    provider.acpAllowTools = form.acpAllowTools;
   }
   if (form.defaultModel.trim()) {
     provider.defaultModel = form.defaultModel.trim();

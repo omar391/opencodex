@@ -2023,6 +2023,8 @@ export const fr: Record<TKey, string> = {
   "pws.cursorTransportHttp1": "HTTP/1.1 (compatibilité proxy)",
   "pws.cursorTransportDesc": "Utilisez HTTP/1.1 si votre proxy ne transporte pas de façon fiable le flux HTTP/2 de Cursor.",
   "pws.acpBinaryPath": "Chemin du binaire agent",
+"pws.acpAllowTools": "Allow agent tools",
+"pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
   "pws.acpBinaryPlaceholder": "Laisser vide pour détecter automatiquement",
   "pws.acpBinaryHint": "Remplace la détection PATH et des outils gérés T3 pour cet agent. Laisser vide pour détecter automatiquement.",
   "pws.acpBinaryResolved": "Binaire résolu :",

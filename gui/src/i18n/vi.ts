@@ -2020,6 +2020,8 @@ export const vi: Record<TKey, string> = {
   "pws.cursorTransportHttp1": "HTTP/1.1 (tương thích với proxy)",
   "pws.cursorTransportDesc": "Sử dụng HTTP/1.1 khi proxy của bạn không thể truyền stream HTTP/2 của Cursor một cách đáng tin cậy.",
   "pws.acpBinaryPath": "Đường dẫn binary tác tử",
+"pws.acpAllowTools": "Allow agent tools",
+"pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
   "pws.acpBinaryPlaceholder": "Để trống để tự động phát hiện",
   "pws.acpBinaryHint": "Ghi đè việc phát hiện qua PATH và công cụ do T3 quản lý cho tác tử này. Để trống để tự động phát hiện.",
   "pws.acpBinaryResolved": "Binary được phân giải:",

@@ -2034,6 +2034,8 @@ export const pt: Record<TKey, string> = {
   "pws.cursorTransportHttp1": "HTTP/1.1 (compatibilidade com proxy)",
   "pws.cursorTransportDesc": "Use HTTP/1.1 quando seu proxy não conseguir transportar de forma confiável o stream HTTP/2 do Cursor.",
   "pws.acpBinaryPath": "Caminho do binário do agente",
+"pws.acpAllowTools": "Allow agent tools",
+"pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
   "pws.acpBinaryPlaceholder": "Deixe vazio para detecção automática",
   "pws.acpBinaryHint": "Substitui a detecção por PATH e ferramentas gerenciadas do T3 para este agente. Deixe vazio para detecção automática.",
   "pws.acpBinaryResolved": "Binário resolvido:",
