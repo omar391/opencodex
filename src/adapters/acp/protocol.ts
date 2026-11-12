@@ -158,6 +158,19 @@ export function buildAcpPrompt(context: OcxContext): Array<Record<string, unknow
   return blocks.length > 0 ? blocks : [textBlock("(empty)")];
 }
 
+// Codex injects harness context as user-role messages: `# AGENTS.md
+// instructions` blocks and tagged sections (`<environment_context>`,
+// `<permissions instructions>`, …). Forwarding them makes the agent execute
+// the client's agent instructions — skill loads, permission flows — instead of
+// answering the user, which is both slower and exactly the harness leakage
+// this adapter exists to prevent.
+const CODEX_AGENTS_MD_BLOCK = /# AGENTS\.md instructions(?: for [^\n]*)?\n+<INSTRUCTIONS>\n?[\s\S]*?\n?<\/INSTRUCTIONS>/g;
+const CODEX_TAGGED_SECTION = /<([a-zA-Z_][a-zA-Z0-9_ -]*(?:instructions|_context)[a-zA-Z0-9_ -]*)>[\s\S]*?<\/\1>/g;
+
+function stripCodexContext(text: string): string {
+  return text.replace(CODEX_AGENTS_MD_BLOCK, "").replace(CODEX_TAGGED_SECTION, "").trim();
+}
+
 /**
  * Flattened prior conversation for a FRESH session (no resume state).
  *
@@ -171,8 +184,8 @@ export function buildAcpHistory(context: OcxContext, currentUserIndex: number): 
   const messages = context.messages.slice(0, currentUserIndex);
   for (const message of messages) {
     if (message.role === "user") {
-      const text = messageText(message.content);
-      if (text.trim()) blocks.push(fence("User", text));
+      const text = stripCodexContext(messageText(message.content));
+      if (text) blocks.push(fence("User", text));
     } else if (message.role === "assistant") {
       const text = messageText(message.content);
       if (text.trim()) blocks.push(fence("Assistant", text));
