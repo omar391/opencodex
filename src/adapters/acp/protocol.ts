@@ -170,16 +170,23 @@ export function buildAcpPrompt(context: OcxContext): Array<Record<string, unknow
 // spawn_agent, goal workflows) that a foreign ACP agent cannot execute —
 // forwarding it makes the agent attempt Codex-only machinery and stall. The
 // `for <path>` form names a project directory and IS forwarded.
+//
+// Same for tagged sections: `*instructions*` tags (`<skills_instructions>`,
+// `<permissions instructions>`, `<collaboration_mode_instructions>`, …) are
+// Codex's agent-loop rules — dropped. `*_context*` tags carry facts any agent
+// can use (`<environment_context>` cwd/shell, time context) — forwarded.
 const CODEX_AGENTS_MD_PROJECT = /# AGENTS\.md instructions for [^\n]*\n+<INSTRUCTIONS>\n?[\s\S]*?\n?<\/INSTRUCTIONS>/g;
 const CODEX_AGENTS_MD_GLOBAL = /# AGENTS\.md instructions\n+<INSTRUCTIONS>\n?[\s\S]*?\n?<\/INSTRUCTIONS>/g;
-const CODEX_TAGGED_SECTION = /<([a-zA-Z_][a-zA-Z0-9_ -]*(?:instructions|_context)[a-zA-Z0-9_ -]*)>[\s\S]*?<\/\1>/g;
+const CODEX_CONTEXT_TAG = /<([a-zA-Z_][a-zA-Z0-9_ -]*_context[a-zA-Z0-9_ -]*)>[\s\S]*?<\/\1>/g;
+const CODEX_INSTRUCTIONS_TAG = /<[a-zA-Z_][a-zA-Z0-9_ -]*instructions[a-zA-Z0-9_ -]*>[\s\S]*?<\/[a-zA-Z_][a-zA-Z0-9_ -]*>/g;
 
 function extractCodexContext(text: string): { clean: string; injections: string[] } {
   const injections: string[] = [];
   const clean = text
     .replace(CODEX_AGENTS_MD_PROJECT, (m) => (injections.push(m.trim()), ""))
     .replace(CODEX_AGENTS_MD_GLOBAL, "")
-    .replace(CODEX_TAGGED_SECTION, (m) => (injections.push(m.trim()), ""))
+    .replace(CODEX_INSTRUCTIONS_TAG, "")
+    .replace(CODEX_CONTEXT_TAG, (m) => (injections.push(m.trim()), ""))
     .trim();
   return { clean, injections };
 }
