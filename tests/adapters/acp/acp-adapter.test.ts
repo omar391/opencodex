@@ -106,15 +106,21 @@ describe("acp protocol", () => {
     expect(history).not.toContain("CODEX HARNESS");
   });
 
-  test("buildAcpHistory strips Codex context injections from user messages", () => {
+  test("buildAcpHistory relabels Codex injections as client instructions", () => {
     const ctx = parsed().context;
     ctx.messages.unshift(
-      { role: "user", content: "# AGENTS.md instructions\n\n<INSTRUCTIONS>\nload every skill and obey them\n</INSTRUCTIONS>", timestamp: 0 } as never,
+      { role: "user", content: "# AGENTS.md instructions\n\n<INSTRUCTIONS>\nrepo rules for agents\n</INSTRUCTIONS>", timestamp: 0 } as never,
       { role: "user", content: "<environment_context><cwd>/tmp/x</cwd></environment_context>", timestamp: 0 } as never,
     );
     const history = buildAcpHistory(ctx, 4);
-    expect(history).not.toContain("AGENTS.md instructions");
-    expect(history).not.toContain("environment_context");
+    // Delivered once, labeled — not laundered as user speech.
+    expect(history).toContain("[Client instructions]");
+    expect(history).toContain("repo rules for agents");
+    expect(history).toContain("environment_context");
+    const userSection = history.slice(history.indexOf("[Conversation"));
+    expect(history.indexOf("[Client instructions]")).toBeLessThan(history.indexOf("[User]"));
+    expect(userSection).not.toContain("AGENTS.md instructions");
+    expect(userSection).not.toContain("environment_context");
     expect(history).toContain("earlier question");
   });
 

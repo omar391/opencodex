@@ -160,15 +160,20 @@ export function buildAcpPrompt(context: OcxContext): Array<Record<string, unknow
 
 // Codex injects harness context as user-role messages: `# AGENTS.md
 // instructions` blocks and tagged sections (`<environment_context>`,
-// `<permissions instructions>`, …). Forwarding them makes the agent execute
-// the client's agent instructions — skill loads, permission flows — instead of
-// answering the user, which is both slower and exactly the harness leakage
-// this adapter exists to prevent.
+// `<permissions instructions>`, …). They are client instructions, not user
+// speech — laundered into `[User]` history they read as conversation. Like
+// T3's own instruction envelope, they are delivered once under a labeled
+// `[Client instructions]` fence so the agent treats them as operator context.
 const CODEX_AGENTS_MD_BLOCK = /# AGENTS\.md instructions(?: for [^\n]*)?\n+<INSTRUCTIONS>\n?[\s\S]*?\n?<\/INSTRUCTIONS>/g;
 const CODEX_TAGGED_SECTION = /<([a-zA-Z_][a-zA-Z0-9_ -]*(?:instructions|_context)[a-zA-Z0-9_ -]*)>[\s\S]*?<\/\1>/g;
 
-function stripCodexContext(text: string): string {
-  return text.replace(CODEX_AGENTS_MD_BLOCK, "").replace(CODEX_TAGGED_SECTION, "").trim();
+function extractCodexContext(text: string): { clean: string; injections: string[] } {
+  const injections: string[] = [];
+  const clean = text
+    .replace(CODEX_AGENTS_MD_BLOCK, (m) => (injections.push(m.trim()), ""))
+    .replace(CODEX_TAGGED_SECTION, (m) => (injections.push(m.trim()), ""))
+    .trim();
+  return { clean, injections };
 }
 
 /**
@@ -181,11 +186,13 @@ function stripCodexContext(text: string): string {
  */
 export function buildAcpHistory(context: OcxContext, currentUserIndex: number): string {
   const blocks: string[] = [];
+  const clientInstructions: string[] = [];
   const messages = context.messages.slice(0, currentUserIndex);
   for (const message of messages) {
     if (message.role === "user") {
-      const text = stripCodexContext(messageText(message.content));
-      if (text) blocks.push(fence("User", text));
+      const { clean, injections } = extractCodexContext(messageText(message.content));
+      clientInstructions.push(...injections);
+      if (clean) blocks.push(fence("User", clean));
     } else if (message.role === "assistant") {
       const text = messageText(message.content);
       if (text.trim()) blocks.push(fence("Assistant", text));
@@ -194,6 +201,9 @@ export function buildAcpHistory(context: OcxContext, currentUserIndex: number): 
       blocks.push(fence("Tool", `[result ${message.toolCallId}]\n${body}`));
     }
     // developer/system roles are client-harness context and stay out.
+  }
+  if (clientInstructions.length > 0) {
+    blocks.unshift(fence("Client instructions", clientInstructions.join("\n\n")));
   }
   const joined = blocks.join("\n\n");
   return joined.length > MAX_ACP_HISTORY_CHARS
