@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { createAcpAdapter } from "../../../src/adapters/acp/adapter";
 import { ACP_INITIALIZE_ID, ACP_PROMPT_ID, ACP_SESSION_ID, buildAcpPrompt, buildAcpHistory, acpUpdateToEvents, mapAcpUsage, sessionLoadFrame, composeEffortModelId } from "../../../src/adapters/acp/protocol";
-import { clearAcpBinaryCache, resolveAcpBinaryInfo, resolveAcpProfile, acpProfiles, resolveT3ToolBinary, resolveT3AntigravityGeminiHome } from "../../../src/adapters/acp/profiles";
+import { clearAcpBinaryCache, resolveAcpBinaryInfo, resolveAcpProfile, acpProfiles, resolveT3ToolBinary } from "../../../src/adapters/acp/profiles";
 import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig } from "../../../src/types";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { SpawnOptions } from "node:child_process";
@@ -150,7 +150,8 @@ describe("acp protocol", () => {
 
   test("profiles resolve by provider id", () => {
     expect(resolveAcpProfile("devin-acp")?.binaryCandidates).toContain("devin");
-    expect(resolveAcpProfile("antigravity-acp")?.t3ToolName).toBe("antigravity-acp");
+    expect(resolveAcpProfile("antigravity-acp")?.binaryCandidates).toContain("agy");
+    expect(resolveAcpProfile("antigravity-acp")?.t3ToolName).toBeUndefined();
     expect(resolveAcpProfile("nope")).toBeUndefined();
     expect(acpProfiles().length).toBeGreaterThan(0);
   });
@@ -174,12 +175,6 @@ describe("acp protocol", () => {
     expect(resolveT3ToolBinary("missing", "devin", { home: root })).toBeUndefined();
   });
 
-  test("resolveT3AntigravityGeminiHome picks instance with settings", () => {
-    // No T3 state on the test machine path is guaranteed; assert it returns a
-    // string-or-undefined without throwing for a synthetic home.
-    const home = resolveT3AntigravityGeminiHome("/nonexistent-home-xyz");
-    expect(home === undefined || typeof home === "string").toBe(true);
-  });
 });
 
 describe("acp adapter runTurn", () => {

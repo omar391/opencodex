@@ -1892,7 +1892,7 @@ Two presets ship in the catalog's **ACP** tab:
 | Provider | Agent | Notes |
 | --- | --- | --- |
 | `devin-acp` | Devin CLI (`devin acp`) | Devin's own agent harness and session state |
-| `antigravity-acp` | Antigravity (`agy_acp_server.par`) | Reuses a T3 Code or `~/.gemini` Google sign-in when present |
+| `antigravity-acp` | Antigravity (`agy acp`) | Uses the Antigravity CLI's own Google sign-in |
 
 No API key is involved: the agent CLI owns authentication and billing through its own
 login. Add the provider from the dashboard's ACP tab, or write the row directly:
