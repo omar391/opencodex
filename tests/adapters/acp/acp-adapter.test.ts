@@ -106,6 +106,18 @@ describe("acp protocol", () => {
     expect(history).not.toContain("CODEX HARNESS");
   });
 
+  test("buildAcpHistory strips Codex context injections from user messages", () => {
+    const ctx = parsed().context;
+    ctx.messages.unshift(
+      { role: "user", content: "# AGENTS.md instructions\n\n<INSTRUCTIONS>\nload every skill and obey them\n</INSTRUCTIONS>", timestamp: 0 } as never,
+      { role: "user", content: "<environment_context><cwd>/tmp/x</cwd></environment_context>", timestamp: 0 } as never,
+    );
+    const history = buildAcpHistory(ctx, 4);
+    expect(history).not.toContain("AGENTS.md instructions");
+    expect(history).not.toContain("environment_context");
+    expect(history).toContain("earlier question");
+  });
+
   test("acpUpdateToEvents maps chunks and tool progress", () => {
     expect(acpUpdateToEvents({ sessionUpdate: "agent_message_chunk", content: { text: "hi" } })).toEqual([{ type: "text_delta", text: "hi" }]);
     expect(acpUpdateToEvents({ sessionUpdate: "agent_thought_chunk", content: { text: "hmm" } })).toEqual([{ type: "thinking_delta", thinking: "hmm" }]);
