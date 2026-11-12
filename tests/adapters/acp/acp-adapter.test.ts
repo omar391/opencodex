@@ -250,6 +250,40 @@ describe("acp adapter runTurn", () => {
     expect(events.some(e => e.type === "done")).toBe(false);
   });
 
+  test("quota notice becomes a failover error without leaking text", async () => {
+    clearAcpBinaryCache();
+    const QUOTA = "⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 37h48m0s.";
+    const quotaScript = (send: (f: Record<string, unknown>) => void, stdin: PassThrough) => {
+      stdin.on("data", (d: Buffer) => {
+        const s = d.toString();
+        if (s.includes(`"id":${ACP_INITIALIZE_ID}`)) {
+          send({ jsonrpc: "2.0", id: ACP_INITIALIZE_ID, result: { protocolVersion: 1, agentCapabilities: { loadSession: true } } });
+        } else if (s.includes(`"id":${ACP_SESSION_ID}`)) {
+          send({ jsonrpc: "2.0", id: ACP_SESSION_ID, result: { sessionId: "sess-quota" } });
+        } else if (s.includes(`"id":${ACP_PROMPT_ID}`)) {
+          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "sess-quota", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: QUOTA.slice(0, 40) } } } });
+          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "sess-quota", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: QUOTA.slice(40) } } } });
+          send({ jsonrpc: "2.0", id: ACP_PROMPT_ID, result: { stopReason: "end_turn" } });
+        }
+      });
+    };
+    const { child } = fakeChild(quotaScript);
+    const adapter = createAcpAdapter(PROVIDER, { providerId: "devin-acp" }, {
+      spawn: (() => child) as never,
+      which: (() => "/fake/devin") as never,
+      timeoutMs: 5_000,
+      killGraceMs: 10,
+      reapTimeoutMs: 20,
+    });
+    const events = await collect(adapter, parsed());
+    const err = events.find(e => e.type === "error") as Extract<AdapterEvent, { type: "error" }> | undefined;
+    expect(err).toMatchObject({ code: "acp_quota_exhausted", status: 429, errorType: "rate_limit_error", retryable: true });
+    // The held notice must be discarded, not flushed ahead of the error event —
+    // a leaked text_delta commits the stream and combo failover never engages.
+    expect(events.some(e => e.type === "text_delta")).toBe(false);
+    expect(events.some(e => e.type === "done")).toBe(false);
+  });
+
   test("unknown provider id fails closed", async () => {
     const adapter = createAcpAdapter(PROVIDER, { providerId: "unknown-agent" });
     const events = await collect(adapter, parsed());

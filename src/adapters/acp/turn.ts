@@ -99,6 +99,11 @@ function createAcpTextGate(emit: (event: AdapterEvent) => void) {
     emit: gated,
     /** Buffered agent text while the gate never opened; undefined once flushed. */
     heldText: (): string | undefined => (open ? undefined : pending || undefined),
+    /** Drop buffered text without emitting — a quota notice must never stream. */
+    discard: () => {
+      if (timer) { clearTimeout(timer); timer = undefined; }
+      pending = "";
+    },
     close: () => { if (timer) clearTimeout(timer); },
   };
 }
@@ -291,6 +296,9 @@ export async function runAcpTurn(input: {
       // Errors and aborts still reap the process.
       const quotaHeld = !errorMessage ? textGate.heldText() : undefined;
       const quotaExceeded = quotaHeld !== undefined && ACP_QUOTA_TEXT_RE.test(quotaHeld);
+      // The terminal error event passes through the gate, which would otherwise
+      // flush the held quota notice as text before the error — discard it first.
+      if (quotaExceeded) textGate.discard();
       let adopted = false;
       if (!errorMessage && !quotaExceeded && sessionId && poolingAllowed && input.providerId) {
         adopted = adoptAcpSession({
@@ -602,6 +610,7 @@ async function runPooledAcpTurn(input: {
         const state = continuationState({ sessionId, cwd, modelId });
         const quotaHeld = !errorMessage ? textGate.heldText() : undefined;
         const quotaExceeded = quotaHeld !== undefined && ACP_QUOTA_TEXT_RE.test(quotaHeld);
+        if (quotaExceeded) textGate.discard();
         textGate.close();
         if (errorMessage || quotaExceeded) {
           emit({
