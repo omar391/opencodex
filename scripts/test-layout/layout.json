@@ -1385,6 +1385,7 @@
     "passive-route-linker.test.ts": "server",
     "passthrough-grok-upstream-envelope-echo.test.ts": "responses",
     "phase100-native-parity.test.ts": "e2e-style",
+    "live-acp-codex.test.ts": "e2e-style",
     "physical-send.test.ts": "adapters",
     "pinned-http-content-coding.test.ts": "lib",
     "pinned-http.test.ts": "lib",

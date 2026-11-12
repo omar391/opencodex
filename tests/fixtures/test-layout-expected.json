@@ -2094,7 +2094,7 @@
 "passthrough-grok-upstream-envelope-echo.test.ts": "responses",
 "passthrough-headers.test.ts": "responses",
 "passthrough-override.test.ts": "responses",
-"phase100-native-parity.test.ts": "e2e-style",
+"phase100-native-parity.test.ts": "e2e-style", "live-acp-codex.test.ts": "e2e-style",
 "physical-send.test.ts": "adapters",
 "pi-path-contract.test.ts": "clients",
 "pinned-http-content-coding.test.ts": "lib",
