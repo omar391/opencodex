@@ -2005,6 +2005,8 @@ export const ru: Record<TKey, string> = {
   "pws.cursorTransportHttp1": "HTTP/1.1 (совместимость с прокси)",
   "pws.cursorTransportDesc": "Используйте HTTP/1.1, если прокси нестабильно передаёт поток Cursor по HTTP/2.",
   "pws.acpBinaryPath": "Путь к бинарнику агента",
+"pws.acpAllowTools": "Allow agent tools",
+"pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
   "pws.acpBinaryPlaceholder": "Оставьте пустым для автопоиска",
   "pws.acpBinaryHint": "Переопределяет поиск по PATH и управляемым инструментам T3 для этого агента. Оставьте пустым для автопоиска.",
   "pws.acpBinaryResolved": "Найденный бинарник:",

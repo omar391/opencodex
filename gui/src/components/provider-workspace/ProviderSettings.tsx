@@ -123,6 +123,7 @@ function ProviderSettingsForm({
   const [apiKeyTransport, setApiKeyTransport] = useState(initial.draft.apiKeyTransport);
   const [note, setNote] = useState(initial.draft.note);
   const [acpBinaryPath, setAcpBinaryPath] = useState(initial.draft.acpBinaryPath);
+  const [acpAllowTools, setAcpAllowTools] = useState(initial.draft.acpAllowTools ?? false);
   const [acpBinary, setAcpBinary] = useState<{ path: string; source: string } | null>(null);
   const [allowPrivateNetwork, setAllowPrivateNetwork] = useState(initial.draft.allowPrivateNetwork);
   const [preserveReasoningReplay, setPreserveReasoningReplay] = useState(initial.draft.preserveReasoningReplay);
@@ -155,10 +156,10 @@ function ProviderSettingsForm({
   const [pacingStatus, setPacingStatus] = useState<PacingStatus | null>(null);
 
   const draft = useMemo<ProviderSettingsDraft>(() => ({
-    adapter, baseUrl, project, location, defaultModel, authMode, apiKeyTransport, note, acpBinaryPath,
+    adapter, baseUrl, project, location, defaultModel, authMode, apiKeyTransport, note, acpBinaryPath, acpAllowTools,
     allowPrivateNetwork, preserveReasoningReplay, liveModels, cursorHttpVersion,
     pacingEnabled, keyPacing, pacingRpm, pacingDelay, pacingConcurrency, pacingModels,
-  }), [acpBinaryPath, adapter, allowPrivateNetwork, apiKeyTransport, authMode, baseUrl, cursorHttpVersion, defaultModel,
+  }), [acpAllowTools, acpBinaryPath, adapter, allowPrivateNetwork, apiKeyTransport, authMode, baseUrl, cursorHttpVersion, defaultModel,
     keyPacing, liveModels, location, note, pacingConcurrency, pacingDelay, pacingEnabled, pacingModels, pacingRpm,
     preserveReasoningReplay, project]);
 
@@ -172,6 +173,7 @@ function ProviderSettingsForm({
     setApiKeyTransport(next.apiKeyTransport);
     setNote(next.note);
     setAcpBinaryPath(next.acpBinaryPath);
+    setAcpAllowTools(next.acpAllowTools ?? false);
     setAllowPrivateNetwork(next.allowPrivateNetwork);
     setPreserveReasoningReplay(next.preserveReasoningReplay);
     setLiveModels(next.liveModels);
@@ -602,6 +604,13 @@ function ProviderSettingsForm({
               <code className="chip">{acpBinary.path}</code> ({acpBinary.source})
             </span>
           )}
+        </label>
+      )}
+      {isAcp && (
+        <label className="pwi-settings-check">
+          <input type="checkbox" checked={acpAllowTools} onChange={e => setAcpAllowTools(e.target.checked)} />
+          <span className="pwi-settings-label">{t("pws.acpAllowTools")}</span>
+          <span className="pwi-settings-hint">{t("pws.acpAllowToolsHint")}</span>
         </label>
       )}
       <label className="pwi-settings-field">

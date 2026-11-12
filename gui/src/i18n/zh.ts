@@ -3215,6 +3215,8 @@ export const zh: Record<TKey, string> = {
   "pws.cursorTransportHttp1": "HTTP/1.1（代理兼容）",
   "pws.cursorTransportDesc": "当代理无法稳定承载 Cursor 的 HTTP/2 流时，请使用 HTTP/1.1。",
   "pws.acpBinaryPath": "代理二进制路径",
+"pws.acpAllowTools": "Allow agent tools",
+"pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
   "pws.acpBinaryPlaceholder": "留空以自动检测",
   "pws.acpBinaryHint": "覆盖此代理的 PATH 和 T3 托管工具检测。留空以自动检测。",
   "pws.acpBinaryResolved": "解析出的二进制：",

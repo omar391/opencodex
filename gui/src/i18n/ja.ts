@@ -1914,6 +1914,8 @@ export const ja: Record<TKey, string> = {
   "pws.cursorTransportHttp1": "HTTP/1.1（プロキシ互換）",
   "pws.cursorTransportDesc": "プロキシが Cursor の HTTP/2 ストリームを安定して転送できない場合は HTTP/1.1 を使用します。",
   "pws.acpBinaryPath": "エージェントバイナリパス",
+"pws.acpAllowTools": "Allow agent tools",
+"pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
   "pws.acpBinaryPlaceholder": "空欄で自動検出",
   "pws.acpBinaryHint": "このエージェントの PATH および T3 管理ツール検出を上書きします。空欄で自動検出。",
   "pws.acpBinaryResolved": "解決されたバイナリ:",

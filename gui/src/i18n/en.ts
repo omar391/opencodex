@@ -2046,6 +2046,8 @@ export const en = {
   "pws.cursorTransportHttp1": "HTTP/1.1 (proxy compatibility)",
   "pws.cursorTransportDesc": "Use HTTP/1.1 when your proxy cannot reliably carry Cursor's HTTP/2 stream.",
   "pws.acpBinaryPath": "Agent binary path",
+"pws.acpAllowTools": "Allow agent tools",
+"pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
   "pws.acpBinaryPlaceholder": "Leave empty to auto-detect",
   "pws.acpBinaryHint": "Overrides PATH and T3 managed-tools discovery for this agent. Leave empty to auto-detect.",
   "pws.acpBinaryResolved": "Resolved binary:",
