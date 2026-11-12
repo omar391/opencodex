@@ -355,7 +355,12 @@ event mapping stay pure in `src/adapters/acp/protocol.ts`, lifecycle and reaping
 This wire is agent delegation, not model routing: the client's system prompt, tool catalog and
 developer context are deliberately NOT forwarded, and the agent's own tools execute inside its own
 session — their tool_call updates surface as thinking-delta progress, never as client tool calls.
-Multi-turn continuity rides `providerState.acp.sessionId` through `session/load`, with a
-fresh-session fallback on a stale id. `session/request_permission` is cancelled unless
+Multi-turn continuity rides `providerState.acp.sessionId`: a cleanly finished turn adopts its
+live agent process and session into the pool in `src/adapters/acp/session-pool.ts`, so the next
+turn in the thread prompts the warm session in place (no respawn, no handshake, no replay) until
+the session idle-reaps, the pool evicts it, or the process dies. A miss falls back to the cold
+path — spawn, initialize, then `session/load` for a known id with a fresh-session fallback on a
+stale one. `session/request_permission` is cancelled unless
 `OPENCODEX_ACP_ALLOW_TOOLS=1` opts in; fs and terminal client capabilities are declared off.
-`tests/adapters/acp/acp-adapter.test.ts` covers framing, prompt projection, and the turn lifecycle.
+`OPENCODEX_ACP_SESSION_POOL=0` disables pooling. `tests/adapters/acp/acp-adapter.test.ts` covers
+framing, prompt projection, the turn lifecycle, and warm-session reuse.

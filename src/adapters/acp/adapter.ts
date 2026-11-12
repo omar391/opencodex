@@ -76,6 +76,7 @@ export function createAcpAdapter(provider: OcxProviderConfig, context: AdapterFa
         profile,
         binary,
         provider,
+        providerId: context.providerId,
         parsed,
         incoming,
         emit,

@@ -37,6 +37,16 @@ import {
 } from "./protocol";
 import type { AcpProviderProfile } from "./profiles";
 import type { WhichFn } from "../coding-agent/profile";
+import {
+  acpSessionPoolEnabled,
+  acpSessionPoolKey,
+  acpSessionRequest,
+  acpSessionSend,
+  adoptAcpSession,
+  getPooledAcpSession,
+  noteAcpSessionActivity,
+  type PooledAcpSession,
+} from "./session-pool";
 
 const TURN_TIMEOUT_MS = 10 * 60 * 1000;
 const KILL_GRACE_MS = 2_000;
@@ -63,6 +73,8 @@ export interface AcpTurnDeps {
   toolsAllowed?: boolean;
   /** Test seam: home directory for T3 tool/GEMINI_HOME lookups. */
   homeDir?: string;
+  /** Force the ACP session pool on/off; default follows OPENCODEX_ACP_SESSION_POOL and the spawn seam. */
+  sessionPool?: boolean;
 }
 
 interface AcpSessionState {
@@ -93,6 +105,7 @@ export async function runAcpTurn(input: {
   profile: AcpProviderProfile;
   binary: string;
   provider: OcxProviderConfig;
+  providerId?: string;
   parsed: OcxParsedRequest;
   incoming: IncomingMeta;
   emit: (event: AdapterEvent) => void;
@@ -102,6 +115,9 @@ export async function runAcpTurn(input: {
   const { profile, binary, provider, parsed, incoming, emit, cwd } = input;
   const deps = input.deps ?? {};
   const toolsAllowed = deps.toolsAllowed ?? acpToolsAllowed();
+  // Pooling is on for real spawns; a custom spawn seam means a test harness
+  // that expects one process per turn, unless the test opts in explicitly.
+  const poolingAllowed = (deps.sessionPool ?? deps.spawn === undefined) && acpSessionPoolEnabled();
 
   if (incoming.abortSignal?.aborted) {
     emit({ type: "error", message: `${profile.label} turn was aborted before start.` });
@@ -128,6 +144,16 @@ export async function runAcpTurn(input: {
     : parsed.modelId;
   const env = { ...baseScopedEnv(), ...(profile.buildEnv?.(provider.apiKey ?? "", binary) ?? {}) };
 
+  // Warm path: the continuation state's sessionId belongs to a live pooled
+  // agent — skip spawn/initialize/session-load entirely and prompt in place.
+  const poolKey = poolingAllowed && prior.sessionId && input.providerId
+    ? acpSessionPoolKey(input.providerId, prior.sessionId)
+    : undefined;
+  const pooled = poolKey ? getPooledAcpSession(poolKey) : undefined;
+  if (pooled && pooled.cwd === cwd && pooled.binary === binary) {
+    return runPooledAcpTurn({ profile, parsed, incoming, emit, cwd, session: pooled, deps, toolsAllowed });
+  }
+
   await new Promise<void>((resolve) => {
     let child: ChildProcessWithoutNullStreams;
     try {
@@ -153,6 +179,8 @@ export async function runAcpTurn(input: {
     let usage: import("../../types").OcxUsage | undefined;
     let stopReason: string | undefined;
     let sessionId: string | undefined = prior.sessionId;
+    /** Config-option ids the agent advertised at session creation (for pool adoption). */
+    let sessionConfigIds: string[] = [];
     /** True while session/load is replaying history — those updates are swallowed. */
     let suppressReplay = false;
     const promptBlocks: Array<Record<string, unknown>> = [];
@@ -199,7 +227,23 @@ export async function runAcpTurn(input: {
       clearTimeout(turnTimer);
       clearInterval(heartbeatTimer);
       incoming.abortSignal?.removeEventListener("abort", onAbort);
-      child.stdout.destroy();
+      // A clean completion hands the live agent + session to the pool so the
+      // next turn in this thread skips spawn/handshake/session-load entirely.
+      // Errors and aborts still reap the process.
+      let adopted = false;
+      if (!errorMessage && sessionId && poolingAllowed && input.providerId) {
+        adopted = adoptAcpSession({
+          key: acpSessionPoolKey(input.providerId, sessionId),
+          providerId: input.providerId,
+          binary,
+          cwd,
+          sessionId,
+          configIds: sessionConfigIds,
+          child,
+          leftoverBuffer: buffer,
+        }) !== undefined;
+      }
+      if (!adopted) child.stdout.destroy();
       const state = sessionId ? continuationState({ sessionId, cwd, modelId }) : undefined;
       if (errorMessage) {
         emit({
@@ -216,7 +260,8 @@ export async function runAcpTurn(input: {
           ...(state ? { providerState: state } : {}),
         });
       }
-      reapAndResolve();
+      if (adopted) resolve();
+      else reapAndResolve();
     }
 
     incoming.abortSignal?.addEventListener("abort", onAbort, { once: true });
@@ -354,6 +399,7 @@ export async function runAcpTurn(input: {
         const configIds = Array.isArray(result?.configOptions)
           ? (result.configOptions as Array<{ id?: unknown }>).map(o => o?.id).filter((v): v is string => typeof v === "string")
           : [];
+        sessionConfigIds = configIds;
         if (profile.modelConfigId && configIds.includes(profile.modelConfigId)) {
           awaitingModelAck = true;
           send(sessionSetConfigOptionFrame(sessionId, profile.modelConfigId, modelId));
@@ -416,4 +462,155 @@ export async function runAcpTurn(input: {
 
     send(initializeFrame(process.env.OPENCODEX_VERSION ?? "0.0.0"));
   });
+}
+
+/**
+ * Warm path: run one prompt on a pooled, already-initialized ACP session.
+ * Skips spawn/initialize/session-load — the agent keeps its harness, tools,
+ * and conversation state; only the new user turn is sent.
+ */
+async function runPooledAcpTurn(input: {
+  profile: AcpProviderProfile;
+  parsed: OcxParsedRequest;
+  incoming: IncomingMeta;
+  emit: (event: AdapterEvent) => void;
+  cwd: string;
+  session: PooledAcpSession;
+  deps: AcpTurnDeps;
+  toolsAllowed: boolean;
+}): Promise<void> {
+  const { profile, parsed, incoming, emit, cwd, session, deps, toolsAllowed } = input;
+  const modelId = profile.effortSuffix
+    ? composeEffortModelId(parsed.modelId, parsed.options?.reasoning, profile.effortSuffix)
+    : parsed.modelId;
+  const sessionId = session.sessionId;
+
+  if (incoming.abortSignal?.aborted) {
+    emit({ type: "error", message: `${profile.label} turn was aborted before start.` });
+    return;
+  }
+
+  // ACP agents process one prompt per session at a time; chain turns.
+  const previous = session.tail;
+  let release!: () => void;
+  session.tail = new Promise<void>((resolveTail) => { release = resolveTail; });
+  await previous;
+
+  try {
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      let usage: import("../../types").OcxUsage | undefined;
+      let stopReason: string | undefined;
+
+      const turnTimer = setTimeout(() => finish(`${profile.label} turn exceeded ${deps.timeoutMs ?? TURN_TIMEOUT_MS}ms`), deps.timeoutMs ?? TURN_TIMEOUT_MS);
+      const heartbeatTimer = setInterval(() => {
+        if (!settled) emit({ type: "heartbeat" });
+      }, HEARTBEAT_INTERVAL_MS);
+
+      const onAbort = () => {
+        acpSessionSend(session, sessionCancelFrame(sessionId));
+        finish(`${profile.label} turn was aborted.`);
+      };
+
+      function finish(errorMessage?: string, extra?: { status?: number; errorType?: string; code?: string; retryable?: boolean }): void {
+        if (settled) return;
+        settled = true;
+        clearTimeout(turnTimer);
+        clearInterval(heartbeatTimer);
+        incoming.abortSignal?.removeEventListener("abort", onAbort);
+        noteAcpSessionActivity(session);
+        release();
+        const state = continuationState({ sessionId, cwd, modelId });
+        if (errorMessage) {
+          emit({
+            type: "error",
+            message: errorMessage,
+            ...(usage ? { usage } : {}),
+            ...(extra ?? {}),
+          });
+        } else {
+          emit({
+            type: "done",
+            ...(usage ? { usage } : {}),
+            ...(stopReason ? { stopReason } : {}),
+            providerState: state,
+          });
+        }
+        resolve();
+      }
+
+      incoming.abortSignal?.addEventListener("abort", onAbort, { once: true });
+      if (incoming.abortSignal?.aborted) return finish(`${profile.label} turn was aborted.`);
+
+      session.turn = {
+        isSettled: () => settled,
+        onUpdate: (update) => {
+          for (const event of acpUpdateToEvents(update)) emit(event);
+        },
+        onPermission: (id, params) => {
+          const options = (params as { options?: Array<{ optionId?: string; name?: string; kind?: string }> } | undefined)?.options;
+          acpSessionSend(session, permissionResponseFrame(id, options, toolsAllowed));
+        },
+        onProtocolError: (message) => finish(`${profile.label} ${message}`, {
+          status: 502, errorType: "upstream_error", code: "acp_protocol_error", retryable: true,
+        }),
+        onDead: (detail) => finish(`${profile.label} session process ${detail} mid-turn.`, {
+          status: 502, errorType: "upstream_error", code: "cli_exit", retryable: true,
+        }),
+      };
+
+      void (async () => {
+        try {
+          // Same contract as the cold path: hold the prompt until the model
+          // config ack so a rejected model fails with the agent's own message.
+          if (profile.modelConfigId && session.configIds.includes(profile.modelConfigId)) {
+            const response = await acpSessionRequest(
+              session,
+              sessionSetConfigOptionFrame(sessionId, profile.modelConfigId, modelId),
+            );
+            if (settled) return;
+            if (response.error) {
+              const error = response.error as { message?: string; data?: { availableModels?: unknown } };
+              const available = Array.isArray(error.data?.availableModels)
+                ? error.data.availableModels.filter((v): v is string => typeof v === "string")
+                : [];
+              const suffix = available.length ? ` Available: ${available.join(", ")}.` : "";
+              return finish(`${profile.label} model selection failed: ${error.message ?? "unknown error"}${suffix}`, {
+                status: 502,
+                errorType: "upstream_error",
+                code: "acp_model_rejected",
+                retryable: false,
+              });
+            }
+          }
+          const response = await acpSessionRequest(
+            session,
+            sessionPromptFrame(sessionId, buildAcpPrompt(parsed.context)),
+          );
+          if (settled) return;
+          if (response.error) {
+            const error = response.error as { message?: string; data?: { "cognition.ai/errorKind"?: string; retryable?: boolean } };
+            return finish(`${profile.label} session/prompt failed: ${error.message ?? "unknown error"}`, {
+              status: 502,
+              errorType: "upstream_error",
+              code: error.data?.["cognition.ai/errorKind"] ?? "acp_prompt_failed",
+              retryable: error.data?.retryable !== false,
+            });
+          }
+          const result = response.result as { stopReason?: unknown; usage?: unknown } | undefined;
+          usage = mapAcpUsage(result?.usage) ?? usage;
+          stopReason = mapAcpStopReason(result?.stopReason);
+          finish();
+        } catch (error) {
+          if (!settled) {
+            finish(`${profile.label} pooled session failed: ${(error as Error).message}`, {
+              status: 502, errorType: "upstream_error", code: "acp_pooled_failed", retryable: true,
+            });
+          }
+        }
+      })();
+    });
+  } finally {
+    release();
+  }
 }
