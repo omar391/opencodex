@@ -15,7 +15,7 @@ import type { RequestLogContext } from "../request-log";
 import { carryResponseToolOwnership } from "./response-tool-ownership";
 import { createSseInspector } from "../relay";
 import { MAX_CLIENT_SSE_FRAME_BYTES } from "../sse-frame-buffer";
-import { REQUIRED_TOOL_CONTRACT_CODE } from "../../lib/errors";
+import { COMBO_DEGENERATE_COMPLETION_CODE, REQUIRED_TOOL_CONTRACT_CODE } from "../../lib/errors";
 import { requiredToolReasoningPrelude } from "./combo-required-tool-stream";
 
 const COMBO_STREAM_PREFLIGHT_MAX_BYTES = MAX_CLIENT_SSE_FRAME_BYTES;
@@ -60,6 +60,57 @@ const RETRYABLE_ZERO_OUTPUT_INCOMPLETE_REASONS = new Set([
   "missing_terminal_event",
   "upstream_stall_timeout",
 ]);
+
+/** Item-scoped frames that can belong to a commentary-phase message. */
+const MESSAGE_CONTENT_EVENTS = new Set([
+  "response.content_part.added",
+  "response.content_part.done",
+  "response.output_text.delta",
+  "response.output_text.done",
+  "response.output_text.annotation.added",
+  "response.refusal.delta",
+  "response.refusal.done",
+]);
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function comboStreamDegeneratePrelude(payload: unknown, commentaryItemIds: Set<string>): boolean {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const event = payload as Record<string, unknown>;
+  if (requiredToolReasoningPrelude(payload)) return true;
+  if (event.type === "response.output_item.added" || event.type === "response.output_item.done") {
+    const item = recordValue(event.item);
+    if (!item) return false;
+    if (item.type === "reasoning") return true;
+    if (item.type === "message" && item.phase === "commentary") {
+      if (typeof item.id === "string") commentaryItemIds.add(item.id);
+      return true;
+    }
+    return false;
+  }
+  if (typeof event.type === "string" && MESSAGE_CONTENT_EVENTS.has(event.type)) {
+    return typeof event.item_id === "string" && commentaryItemIds.has(event.item_id);
+  }
+  return false;
+}
+
+function isDegenerateStreamTerminal(payload: unknown): boolean {
+  const event = recordValue(payload);
+  if (!event || (event.type !== "response.completed" && event.type !== "response.incomplete")) return false;
+  const response = recordValue(event.response);
+  const output = response?.output;
+  if (!Array.isArray(output)) return true;
+  return output.every(item => {
+    const record = recordValue(item);
+    if (!record) return false;
+    if (record.type === "reasoning") return true;
+    return record.type === "message" && record.phase === "commentary";
+  });
+}
 
 function bareErrorStatus(payload: unknown): number | undefined {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
@@ -404,6 +455,7 @@ export async function preflightComboStreamResponse(
     allowMissingContentType?: boolean;
     replayReadErrors?: boolean;
     requiredToolPrelude?: boolean;
+    degeneratePrelude?: boolean;
     signal?: AbortSignal;
   },
 ): Promise<ComboStreamPreflightResult> {
@@ -427,6 +479,8 @@ export async function preflightComboStreamResponse(
   let responseCreated = false;
   let terminalStatus: ResponsesTerminalStatus | undefined;
   let retryableTerminalPayload: Record<string, unknown> | undefined;
+  let degenerateTerminalPayload: Record<string, unknown> | undefined;
+  const commentaryItemIds = new Set<string>();
   let holdTimer: ReturnType<typeof setTimeout> | undefined;
   let holdDeadline: Promise<"hold-expired"> | undefined;
   const inspector = createSseInspector({
@@ -447,7 +501,9 @@ export async function preflightComboStreamResponse(
       if (heldReasoning) holdDeadline ??= new Promise(resolve => {
         holdTimer = setTimeout(() => resolve("hold-expired"), COMBO_REQUIRED_TOOL_REASONING_HOLD_MS);
       });
-      if (comboStreamPayloadCommitsOutput(payload) && !matchedBareError && !heldReasoning) outputCommitted = true;
+      const degeneratePrelude = options?.degeneratePrelude === true
+        && comboStreamDegeneratePrelude(payload, commentaryItemIds);
+      if (comboStreamPayloadCommitsOutput(payload) && !matchedBareError && !heldReasoning && !degeneratePrelude) outputCommitted = true;
       if (options?.requiredToolPrelude && payload && typeof payload === "object") {
         const event = payload as { type?: unknown; response?: { output?: unknown; error?: { code?: unknown; retryable?: unknown } } };
         const output = event.response?.output;
@@ -461,6 +517,21 @@ export async function preflightComboStreamResponse(
       }
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) return;
       if (retryable) retryableTerminalPayload = payload as Record<string, unknown>;
+      if (options?.degeneratePrelude === true && !degenerateTerminalPayload
+        && isDegenerateStreamTerminal(payload)) {
+        const response = recordValue((payload as Record<string, unknown>).response);
+        degenerateTerminalPayload = {
+          ...(payload as Record<string, unknown>),
+          response: {
+            ...(response ?? {}),
+            error: {
+              type: "upstream_error",
+              code: COMBO_DEGENERATE_COMPLETION_CODE,
+              message: "Combo target ended the turn with only reasoning/commentary prelude — no tool call or final answer",
+            },
+          },
+        };
+      }
     },
     onTerminal: status => { terminalStatus = status; },
   });
@@ -508,14 +579,15 @@ export async function preflightComboStreamResponse(
 
       // A bare error event is not a protocol terminal (terminalStatus stays undefined),
       // so its retryable classification doubles as the terminal evidence.
+      const hopEvidence = retryableTerminalPayload ?? degenerateTerminalPayload;
       if ((terminalStatus === "failed" || terminalStatus === "incomplete"
-        || retryableTerminalPayload?.type === "error")
-        && !outputCommitted && retryableTerminalPayload) {
+        || hopEvidence?.type === "error" || degenerateTerminalPayload !== undefined)
+        && !outputCommitted && hopEvidence !== undefined) {
         await reader.cancel("retrying zero-output combo stream terminal").catch(() => undefined);
-        const failed = failedTerminalResponse(response, retryableTerminalPayload, logCtx);
+        const failed = failedTerminalResponse(response, hopEvidence!, logCtx);
         return { kind: "failed", response: failed,
           ...(failed.status === 400
-            ? { codexModelRefusal: terminalModelRefusal(failed.status, retryableTerminalPayload) } : {}) };
+            ? { codexModelRefusal: terminalModelRefusal(failed.status, hopEvidence) } : {}) };
       }
       if (next.done || terminalStatus !== undefined || outputCommitted
         || bufferedBytes >= COMBO_STREAM_PREFLIGHT_MAX_BYTES

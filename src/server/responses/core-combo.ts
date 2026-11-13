@@ -1287,6 +1287,7 @@ export async function executeComboResponses(
         preflight = await preflightComboStreamResponse(response, childLog, undefined, {
           signal: options.abortSignal,
           requiredToolPrelude: childLog.providerAdapter === "openai-responses" && requiredToolContractOf(rawBody) !== undefined,
+          degeneratePrelude: true,
         });
       } catch (error) {
         callbackGate.discard();
