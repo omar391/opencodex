@@ -116,7 +116,8 @@ function isDegenerateStreamTerminal(payload: unknown): boolean {
   if (event.type !== "response.incomplete") return true;
   const details = recordValue(response?.incomplete_details ?? event.incomplete_details);
   const reason = details?.reason;
-  if (reason !== undefined && !RETRYABLE_ZERO_OUTPUT_INCOMPLETE_REASONS.has(String(reason))) return false;
+  if (reason !== undefined
+    && (typeof reason !== "string" || !RETRYABLE_ZERO_OUTPUT_INCOMPLETE_REASONS.has(reason))) return false;
   const endTurn = response?.end_turn ?? event.end_turn;
   if (endTurn === false) return false;
   if (details?.retryable === false) return false;
