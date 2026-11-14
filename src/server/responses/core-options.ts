@@ -39,6 +39,8 @@ export interface ConsumedComboFailure {
   openRouterOpaque400?: boolean;
   /** Complete bounded-envelope unoffered-tool-call verdict captured before display truncation. */
   unofferedToolCallRefusal?: boolean;
+  /** Complete bounded-envelope provider moderation verdict captured before display truncation. */
+  providerModerationRefusal?: boolean;
   /** Structured upstream `error.code` when present in the failure body. */
   upstreamCode?: string;
   /**
@@ -161,6 +163,8 @@ export interface HandleResponsesOptions {
    * holder with no principal preserves keyless replay; never populate it from client data.
    */
   replayPrincipal?: Readonly<{ clientPrincipalId: string | undefined }>;
+  /** Captured for the logical request and inherited by retries and combo children. */
+  readonly plaintextV2Decision?: boolean;
   /** Called at most once after the complete client body is read and accepted for dispatch. */
   onRequestBodyRead?: () => void;
   /** Internal handoff for retry wrappers that must reuse the already-accounted request body. */
@@ -168,6 +172,8 @@ export interface HandleResponsesOptions {
   forceEmptyResponseId?: boolean;
   /** Internal, connection-owned control channel; never reconstructed from headers. */
   nativeControl?: NativeResponseControl;
+  /** A Remote Link WebSocket turn: told the expanded input and the terminal (src/server/link-turn.ts). */
+  linkTurn?: import("../link-turn").LinkTurnObserver;
   abortSignal?: AbortSignal;
   /** One-shot TTFT callback: first non-empty model output observed (WP4). */
   onFirstOutput?: () => void;
