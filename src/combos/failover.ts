@@ -1126,6 +1126,7 @@ export function isProviderModerationRefusal(
       const msgTrimmed = e.message.trim();
       if (msgTrimmed.startsWith("Provider error 400: ") || msgTrimmed.startsWith("Provider error 422: ") || msgTrimmed.startsWith("{")) {
         text = msgTrimmed;
+        wasParsed = false;
         continue;
       }
     }

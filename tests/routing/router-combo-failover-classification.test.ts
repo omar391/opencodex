@@ -1213,6 +1213,13 @@ describe("provider moderation refusal", () => {
     }
   });
 
+  test("hops on nested provider error prefix inside error.message", () => {
+    const raw = `Provider error 400: {"error":{"message":"Provider error 400: The input was refused by moderation. Categories: harassment.","type":"upstream_error","code":null}}`;
+    expect(isProviderModerationRefusal(400, raw)).toBe(true);
+    expect(comboFailureDecision(400, raw)).toBe("hop");
+    expect(comboFailureCooldownScope(400, raw)).toBe("none");
+  });
+
   test("hops on various provider moderation phrases", () => {
     const phrases = [
       "The input was refused by moderation. Categories: harassment.",
