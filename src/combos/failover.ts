@@ -714,11 +714,11 @@ function isExactInvalidReasoningEffortRefusal(status: number, message: string, c
 // upstream reports it bare, so it belongs here too. The rest of QUOTA_LIMIT_CODES stays out: those
 // are quota-limit codes whose window length this gateway has no evidence for, and guessing long on
 // them would hold a target that may clear sooner.
-const ACCOUNT_EXHAUSTION_CODES = new Set(["usage_limit_exceeded", "usage_limit_reached", "1308"]);
+const ACCOUNT_EXHAUSTION_CODES = new Set(["usage_limit_exceeded", "usage_limit_reached", "1308", "acp_quota_exhausted"]);
 // Token-plan windows (Alibaba's DeepSeek/Qwen plans) report "Your token-plan 1-week quota has been
 // exhausted" (#5494). The match is anchored to that phrasing: a looser "quota ... exhausted" would
 // also catch per-minute limits, and this arm outranks the transient rate-limit duration.
-const ACCOUNT_EXHAUSTION_TEXT = /usage limit (?:has been )?reached|token-plan\s+\S+\s+quota has been exhausted|(?:account|weekly|monthly|daily)\s*(?:usage\s+)?quota (?:(?:has been |is )?exhausted|exceeded)/i;
+const ACCOUNT_EXHAUSTION_TEXT = /usage limit (?:has been )?reached|token-plan\s+\S+\s+quota has been exhausted|(?:account|weekly|monthly|daily)\s*(?:usage\s+)?quota (?:(?:has been |is )?exhausted|exceeded)|free usage limit/i;
 
 /**
  * Determines whether an error signals that an account's quota or usage window has been exhausted.
@@ -821,6 +821,7 @@ const PROVIDER_SCOPED_FAILURE_CODES = new Set([
   "payment_required",
   "billing_error",
   "insufficient_balance",
+  "acp_quota_exhausted",
 ]);
 
 /**
@@ -1405,9 +1406,10 @@ export function comboFailureCooldownScope(
     malformedResponseFormat?: boolean;
     openRouterOpaque400?: boolean;
     unofferedToolCallRefusal?: boolean;
-  },
+  } | string | number | null,
 ): ComboFailureCooldownScope {
-  const rawCode = typeof options?.code === "number" ? String(options.code) : options?.code;
+  const opts = options !== null && typeof options === "object" ? options : { code: options };
+  const rawCode = typeof opts?.code === "number" ? String(opts.code) : opts?.code;
   const code = normalizedFailureCode(rawCode);
   if (isAnthropicBillingFailure(status, message, rawCode)) return "provider";
   // Request-shape refusals first: an oversized request must not cool a healthy target.
@@ -1431,8 +1433,8 @@ export function comboFailureCooldownScope(
     // request fit and the target is healthy, so this must not cool it either. A caller that
     // classified the intact bounded body supplies the verdict directly; the display-truncated
     // text here would fail the envelope parse on a long body.
-    || (options?.unofferedToolCallRefusal !== undefined
-      ? options.unofferedToolCallRefusal
+    || (opts?.unofferedToolCallRefusal !== undefined
+      ? opts.unofferedToolCallRefusal
       : isUnofferedToolCallRefusal(status, message, rawCode))
   ) return "none";
   if (isProviderScopedQuotaCap(status, message, rawCode)) return "provider";
@@ -1443,7 +1445,7 @@ export function comboFailureCooldownScope(
   // OpenRouter's opaque numeric-code wrapper may be target-specific (for example a gateway
   // rejecting a model's translated payload). It may advance the combo, but says nothing about
   // target health and must not quarantine the target.
-  if (isUncodedUpstream400(status, message, rawCode, options)) return "none";
+  if (isUncodedUpstream400(status, message, rawCode, opts)) return "none";
   return "target";
 }
 
@@ -1736,6 +1738,7 @@ function decideComboFailure(
     "rate_limit_exceeded",
     "server_is_overloaded",
     "upstream_server_error",
+    "acp_quota_exhausted",
   ].includes(error.code ?? "")) {
     return "hop";
   }

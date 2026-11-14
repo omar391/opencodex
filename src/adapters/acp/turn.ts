@@ -44,6 +44,7 @@ import {
   acpSessionSend,
   acpThreadPoolKey,
   adoptAcpSession,
+  dropAcpSession,
   getPooledAcpSession,
   noteAcpSessionActivity,
   type PooledAcpSession,
@@ -62,9 +63,20 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 // and combo failover never engages. Hold the first text deltas briefly: a
 // short reply that is entirely a quota/billing notice becomes a failover
 // error; anything longer or mixed with other content flushes and streams on.
-const ACP_QUOTA_TEXT_RE = /individual quota|quota (?:reached|exceeded|exhausted)|usage limits? (?:reached|exceeded)|rate.?limits?(?:ed)?\b|insufficient (?:credits|balance|quota)|upgrade your subscription|resets? in \d/i;
+export const ACP_QUOTA_TEXT_RE = /individual quota|quota (?:reached|exceeded|exhausted)|(?:free )?usage limits? (?:reached|exceeded)|rate.?limits?(?:ed)?\b|insufficient (?:credits|balance|quota)|upgrade your subscription|subscribe to .*? to keep going|resets? in \d/i;
 const TEXT_GATE_MAX_CHARS = 1_500;
 const TEXT_GATE_MS = 1_200;
+
+export function isAcpQuotaError(
+  message?: string,
+  data?: Record<string, unknown>,
+): boolean {
+  if (data?.errorName === "provider.free-limit" || data?.["cognition.ai/errorKind"] === "billing_limit") {
+    return true;
+  }
+  if (!message) return false;
+  return ACP_QUOTA_TEXT_RE.test(message) || /free usage limit|usage limit reached|free-limit/i.test(message);
+}
 
 function createAcpTextGate(emit: (event: AdapterEvent) => void) {
   let pending = "";
@@ -82,16 +94,34 @@ function createAcpTextGate(emit: (event: AdapterEvent) => void) {
     if (event.type === "text_delta" && typeof event.text === "string" && event.text.length > 0) {
       if (!open) {
         pending += event.text;
+        if (isAcpQuotaError(pending)) {
+          // If buffered text matches quota limit, never open or flush to client
+          return;
+        }
         if (pending.length >= TEXT_GATE_MAX_CHARS) { open = true; flush(); }
         else if (!timer) {
-          timer = setTimeout(() => { open = true; flush(); }, TEXT_GATE_MS);
+          timer = setTimeout(() => {
+            if (isAcpQuotaError(pending)) return;
+            open = true;
+            flush();
+          }, TEXT_GATE_MS);
           timer.unref?.();
         }
         return;
       }
+    } else if (event.type === "thinking_delta") {
+      if (isAcpQuotaError(event.thinking)) {
+        return;
+      }
+      if (!open && pending && !isAcpQuotaError(pending)) {
+        open = true;
+        flush();
+      }
     } else if (!open && pending) {
-      open = true;
-      flush();
+      if (event.type !== "error" && !isAcpQuotaError(pending)) {
+        open = true;
+        flush();
+      }
     }
     emit(event);
   };
@@ -103,6 +133,7 @@ function createAcpTextGate(emit: (event: AdapterEvent) => void) {
     discard: () => {
       if (timer) { clearTimeout(timer); timer = undefined; }
       pending = "";
+      open = false;
     },
     close: () => { if (timer) clearTimeout(timer); },
   };
@@ -294,13 +325,13 @@ export async function runAcpTurn(input: {
       // A clean completion hands the live agent + session to the pool so the
       // next turn in this thread skips spawn/handshake/session-load entirely.
       // Errors and aborts still reap the process.
-      const quotaHeld = !errorMessage ? textGate.heldText() : undefined;
+      const quotaHeld = textGate.heldText();
       const quotaExceeded = quotaHeld !== undefined && ACP_QUOTA_TEXT_RE.test(quotaHeld);
-      // The terminal error event passes through the gate, which would otherwise
-      // flush the held quota notice as text before the error — discard it first.
-      if (quotaExceeded) textGate.discard();
+      const isQuota = quotaExceeded || (errorMessage !== undefined && isAcpQuotaError(errorMessage, extra));
+      // Discard held text on ANY error or quota exhaustion — never leak buffered text before an error event!
+      if (errorMessage || isQuota) textGate.discard();
       let adopted = false;
-      if (!errorMessage && !quotaExceeded && sessionId && poolingAllowed && input.providerId) {
+      if (!errorMessage && !isQuota && sessionId && poolingAllowed && input.providerId) {
         adopted = adoptAcpSession({
           key: acpSessionPoolKey(input.providerId, sessionId),
           providerId: input.providerId,
@@ -316,12 +347,14 @@ export async function runAcpTurn(input: {
       if (!adopted) child.stdout.destroy();
       const state = sessionId ? continuationState({ sessionId, cwd, modelId }) : undefined;
       textGate.close();
-      if (errorMessage || quotaExceeded) {
+      if (errorMessage || isQuota) {
         emit({
           type: "error",
           message: errorMessage ?? `${profile.label} reported quota exhaustion: ${quotaHeld!.trim().slice(0, 200)}`,
           ...(usage ? { usage } : {}),
-          ...(errorMessage ? (extra ?? {}) : { status: 429, errorType: "rate_limit_error", code: "acp_quota_exhausted", retryable: true }),
+          ...(isQuota
+            ? { status: 429, errorType: "rate_limit_error", code: "acp_quota_exhausted", retryable: true }
+            : (extra ?? { status: 502, errorType: "upstream_error", code: "acp_prompt_failed", retryable: true })),
         });
       } else {
         emit({
@@ -525,13 +558,36 @@ export async function runAcpTurn(input: {
         if (suppressReplay) return;
         const update = (frame.params as { update?: Record<string, unknown> } | undefined)?.update;
         if (!update) return;
+        const kind = update.sessionUpdate;
+        if (kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
+          const text = typeof update.content === "string"
+            ? update.content
+            : typeof (update.content as { text?: unknown })?.text === "string"
+              ? (update.content as { text: string }).text
+              : "";
+          if (isAcpQuotaError(text)) {
+            return finish(`${profile.label} reported quota exhaustion: ${text.trim().slice(0, 200)}`, {
+              status: 429,
+              errorType: "rate_limit_error",
+              code: "acp_quota_exhausted",
+              retryable: true,
+            });
+          }
+        }
         for (const event of acpUpdateToEvents(update)) emit(event);
         return;
       }
       if (id === ACP_PROMPT_ID) {
         if (error) {
           const kind = error.data?.["cognition.ai/errorKind"];
-          return finish(`${profile.label} session/prompt failed: ${errorMessage()}`, {
+          const errText = errorMessage();
+          const isQuota = isAcpQuotaError(errText, error.data as Record<string, unknown> | undefined);
+          return finish(`${profile.label} session/prompt failed: ${errText}`, isQuota ? {
+            status: 429,
+            errorType: "rate_limit_error",
+            code: "acp_quota_exhausted",
+            retryable: true,
+          } : {
             status: 502,
             errorType: "upstream_error",
             code: kind ?? "acp_prompt_failed",
@@ -608,16 +664,20 @@ async function runPooledAcpTurn(input: {
         noteAcpSessionActivity(session);
         release();
         const state = continuationState({ sessionId, cwd, modelId });
-        const quotaHeld = !errorMessage ? textGate.heldText() : undefined;
+        const quotaHeld = textGate.heldText();
         const quotaExceeded = quotaHeld !== undefined && ACP_QUOTA_TEXT_RE.test(quotaHeld);
-        if (quotaExceeded) textGate.discard();
+        const isQuota = quotaExceeded || (errorMessage !== undefined && isAcpQuotaError(errorMessage, extra as Record<string, unknown> | undefined));
+        if (errorMessage || isQuota) textGate.discard();
+        if (isQuota) dropAcpSession(session.key);
         textGate.close();
-        if (errorMessage || quotaExceeded) {
+        if (errorMessage || isQuota) {
           emit({
             type: "error",
             message: errorMessage ?? `${profile.label} reported quota exhaustion: ${quotaHeld!.trim().slice(0, 200)}`,
             ...(usage ? { usage } : {}),
-            ...(errorMessage ? (extra ?? {}) : { status: 429, errorType: "rate_limit_error", code: "acp_quota_exhausted", retryable: true }),
+            ...(isQuota
+              ? { status: 429, errorType: "rate_limit_error", code: "acp_quota_exhausted", retryable: true }
+              : (extra ?? { status: 502, errorType: "upstream_error", code: "acp_prompt_failed", retryable: true })),
           });
         } else {
           emit({
@@ -636,6 +696,23 @@ async function runPooledAcpTurn(input: {
       session.turn = {
         isSettled: () => settled,
         onUpdate: (update) => {
+          const kind = update.sessionUpdate;
+          if (kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
+            const text = typeof update.content === "string"
+              ? update.content
+              : typeof (update.content as { text?: unknown })?.text === "string"
+                ? (update.content as { text: string }).text
+                : "";
+            if (isAcpQuotaError(text)) {
+              dropAcpSession(session.key);
+              return finish(`${profile.label} reported quota exhaustion: ${text.trim().slice(0, 200)}`, {
+                status: 429,
+                errorType: "rate_limit_error",
+                code: "acp_quota_exhausted",
+                retryable: true,
+              });
+            }
+          }
           for (const event of acpUpdateToEvents(update)) emit(event);
         },
         onPermission: (id, params) => {
@@ -680,8 +757,16 @@ async function runPooledAcpTurn(input: {
           );
           if (settled) return;
           if (response.error) {
-            const error = response.error as { message?: string; data?: { "cognition.ai/errorKind"?: string; retryable?: boolean } };
-            return finish(`${profile.label} session/prompt failed: ${error.message ?? "unknown error"}`, {
+            const error = response.error as { message?: string; data?: Record<string, unknown> & { "cognition.ai/errorKind"?: string; retryable?: boolean } };
+            const errText = error.message ?? "unknown error";
+            const isQuota = isAcpQuotaError(errText, error.data);
+            if (isQuota) dropAcpSession(session.key);
+            return finish(`${profile.label} session/prompt failed: ${errText}`, isQuota ? {
+              status: 429,
+              errorType: "rate_limit_error",
+              code: "acp_quota_exhausted",
+              retryable: true,
+            } : {
               status: 502,
               errorType: "upstream_error",
               code: error.data?.["cognition.ai/errorKind"] ?? "acp_prompt_failed",

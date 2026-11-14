@@ -365,4 +365,104 @@ describe("acp adapter runTurn", () => {
     expect(thirdLines).toContain('"method":"session/prompt"');
     resetAcpSessionPool();
   });
+
+  test("OpenCode free usage limit prompt error becomes quota exhaustion without leaking text", async () => {
+    clearAcpBinaryCache();
+    const freeLimitScript = (send: (f: Record<string, unknown>) => void, stdin: PassThrough) => {
+      stdin.on("data", (d: Buffer) => {
+        const s = d.toString();
+        if (s.includes(`"id":${ACP_INITIALIZE_ID}`)) {
+          send({ jsonrpc: "2.0", id: ACP_INITIALIZE_ID, result: { protocolVersion: 1, agentCapabilities: { loadSession: true } } });
+        } else if (s.includes(`"id":${ACP_SESSION_ID}`)) {
+          send({ jsonrpc: "2.0", id: ACP_SESSION_ID, result: { sessionId: "sess-opencode" } });
+        } else if (s.includes(`"id":${ACP_PROMPT_ID}`)) {
+          send({
+            jsonrpc: "2.0",
+            id: ACP_PROMPT_ID,
+            error: {
+              code: -32603,
+              message: "Internal error: Free usage limit reached. Connect a provider or subscribe to OpenCode Go to keep going, or switch models.",
+              data: { service: "session", errorName: "provider.free-limit" },
+            },
+          });
+        }
+      });
+    };
+    const { child } = fakeChild(freeLimitScript);
+    const adapter = createAcpAdapter(PROVIDER, { providerId: "opencode-acp" }, {
+      spawn: (() => child) as never,
+      which: (() => "/fake/opencode") as never,
+      timeoutMs: 5_000,
+      killGraceMs: 10,
+      reapTimeoutMs: 20,
+    });
+    const events = await collect(adapter, parsed());
+    const err = events.find(e => e.type === "error") as Extract<AdapterEvent, { type: "error" }> | undefined;
+    expect(err).toMatchObject({
+      code: "acp_quota_exhausted",
+      status: 429,
+      errorType: "rate_limit_error",
+      retryable: true,
+    });
+    expect(events.some(e => e.type === "text_delta")).toBe(false);
+    expect(events.some(e => e.type === "done")).toBe(false);
+  });
+
+  test("pooled turn with free usage limit prompt error evicts session and emits quota exhaustion", async () => {
+    resetAcpSessionPool();
+    clearAcpBinaryCache();
+    let turnCount = 0;
+    const poolFreeLimitScript = (send: (f: Record<string, unknown>) => void, stdin: PassThrough) => {
+      stdin.on("data", (d: Buffer) => {
+        const s = d.toString();
+        if (s.includes('"id":1,')) {
+          send({ jsonrpc: "2.0", id: ACP_INITIALIZE_ID, result: { protocolVersion: 1, agentCapabilities: { loadSession: true } } });
+        } else if (s.includes('"id":2,')) {
+          send({ jsonrpc: "2.0", id: ACP_SESSION_ID, result: { sessionId: "sess-pool-quota" } });
+        } else if (s.includes('"method":"session/prompt"')) {
+          turnCount += 1;
+          const id = Number(/"id":(\d+)/.exec(s)?.[1] ?? ACP_PROMPT_ID);
+          if (turnCount === 1) {
+            send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "sess-pool-quota", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "OK" } } } });
+            send({ jsonrpc: "2.0", id, result: { stopReason: "end_turn" } });
+          } else {
+            send({
+              jsonrpc: "2.0",
+              id,
+              error: {
+                code: -32603,
+                message: "Internal error: Free usage limit reached. Connect a provider or subscribe to OpenCode Go to keep going, or switch models.",
+                data: { service: "session", errorName: "provider.free-limit" },
+              },
+            });
+          }
+        }
+      });
+    };
+    const { child } = fakeChild(poolFreeLimitScript);
+    const adapter = createAcpAdapter(PROVIDER, { providerId: "opencode-acp" }, {
+      spawn: (() => child) as never,
+      which: (() => "/fake/opencode") as never,
+      timeoutMs: 5_000,
+      killGraceMs: 10,
+      reapTimeoutMs: 20,
+      sessionPool: true,
+    });
+
+    const first = await collect(adapter, parsed({ _codexOwnThreadId: "thr-quota" }));
+    expect(first.some(e => e.type === "done")).toBe(true);
+    expect(pooledSessionCount()).toBe(1);
+
+    const second = await collect(adapter, parsed({ _codexOwnThreadId: "thr-quota" }));
+    const err = second.find(e => e.type === "error") as Extract<AdapterEvent, { type: "error" }> | undefined;
+    expect(err).toMatchObject({
+      code: "acp_quota_exhausted",
+      status: 429,
+      errorType: "rate_limit_error",
+      retryable: true,
+    });
+    // Session should be evicted from the pool on quota exhaustion
+    expect(pooledSessionCount()).toBe(0);
+    resetAcpSessionPool();
+  });
 });

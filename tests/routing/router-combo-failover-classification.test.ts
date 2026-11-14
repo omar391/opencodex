@@ -58,6 +58,10 @@ afterEach(() => {
 });
 
 describe("combo failure cooldown scope", () => {
+  test("ACP quota exhaustion cools the provider and hops", () => {
+    expect(comboFailureDecision(429, "OpenCode (ACP agent) reported quota exhaustion: Free usage limit reached", { code: "acp_quota_exhausted" })).toBe("hop");
+    expect(comboFailureCooldownScope(429, "OpenCode (ACP agent) reported quota exhaustion: Free usage limit reached", "acp_quota_exhausted")).toBe("provider");
+  });
   test("request-shape refusals cool nothing at all", () => {
     // An oversized request is a fact about the request, not the target: cooling here would make
     // the next, shorter request skip a provider that would have served it.
