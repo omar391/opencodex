@@ -1242,6 +1242,93 @@ export function isResponsesContractRefusal(
 }
 
 /**
+ * Devin's cloud endpoint (Cognition Connect-RPC) rejects requests with `invalid_argument` (HTTP 400)
+ * when tool schemas, protobuf structures, reasoning parameters, or formatting do not match
+ * Cognition's validator. This rejection is target-local: other combo targets (OpenAI, Claude,
+ * Grok, DeepSeek) are fully capable of serving the turn.
+ *
+ * Precedes the generic `invalid_request_error` stop so combo failover advances to the next candidate.
+ */
+export function isDevinInvalidArgumentRefusal(
+  status: number,
+  message: string,
+  code?: string | null,
+  options?: { failedAdapter?: string },
+): boolean {
+  if (status !== 400) return false;
+  const normalizedCode = normalizedFailureCode(code);
+  if (
+    isCyberPolicyCode(normalizedCode)
+    || isNonReplayableUpstreamCode(normalizedCode)
+    || normalizedCode === "origin_rejected"
+  ) {
+    return false;
+  }
+  if (!message || message.length > 32_768) return false;
+
+  let text = message.trim();
+  let extractedCode: string | null = null;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (text.startsWith("Provider error 400: ")) {
+      text = text.slice("Provider error 400: ".length).trim();
+    }
+    if (text.startsWith("data:") && !text.includes("\n")) {
+      text = text.slice("data:".length).trim();
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      break;
+    }
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) break;
+    const rec = payload as Record<string, unknown>;
+    const error = rec.error ?? rec;
+    if (!error || typeof error !== "object" || Array.isArray(error)) break;
+    const e = error as Record<string, unknown>;
+    if (typeof e.code === "string") {
+      extractedCode = e.code;
+    }
+    if (typeof e.message === "string") {
+      const msgTrimmed = e.message.trim();
+      if (msgTrimmed.startsWith("Provider error 400: ") || msgTrimmed.startsWith("{")) {
+        text = msgTrimmed;
+        continue;
+      }
+      text = msgTrimmed;
+      break;
+    }
+    break;
+  }
+
+  if (isCyberPolicyMessage(text) || text.toLowerCase().includes("origin_rejected")) {
+    return false;
+  }
+  if (isReflectedValidationText(text)) {
+    return false;
+  }
+
+  const effectiveCode = normalizedFailureCode(extractedCode || code);
+  const isDevinAdapter = options?.failedAdapter === "devin";
+  const hasDevinPrefix = /^Devin cloud error(?:\s+[a-z0-9_-]+)?:/i.test(text);
+
+  if (isDevinAdapter) {
+    if (effectiveCode === "invalid_argument") return true;
+    if (/cognition chat failed\s*\(invalid_argument\)/i.test(text)) return true;
+    if (/cognition denied this request.*\(invalid_argument\)/i.test(text)) return true;
+    if (/invalid_argument/i.test(text)) return true;
+  }
+
+  if (hasDevinPrefix) {
+    if (effectiveCode === "invalid_argument") return true;
+    if (/invalid_argument/i.test(text)) return true;
+    if (/cognition chat failed/i.test(text)) return true;
+  }
+
+  return false;
+}
+
+/**
  * Codes, types and params an unoffered-tool-call refusal may carry. The reported carrier uses
  * `type: "upstream_error"` with `code: null` -- an aggregator re-wrapping the model backend's
  * 400 -- while request-validation spellings stay accepted because gateways disagree on which
@@ -1406,6 +1493,7 @@ export function comboFailureCooldownScope(
     malformedResponseFormat?: boolean;
     openRouterOpaque400?: boolean;
     unofferedToolCallRefusal?: boolean;
+    failedAdapter?: string;
   } | string | number | null,
 ): ComboFailureCooldownScope {
   const opts = options !== null && typeof options === "object" ? options : { code: options };
@@ -1437,6 +1525,7 @@ export function comboFailureCooldownScope(
       ? opts.unofferedToolCallRefusal
       : isUnofferedToolCallRefusal(status, message, rawCode))
   ) return "none";
+  if (isDevinInvalidArgumentRefusal(status, message, rawCode, opts)) return "target";
   if (isProviderScopedQuotaCap(status, message, rawCode)) return "provider";
   // A rejected or unpaid credential is provider-wide evidence: every target that routes
   // through the same provider row carries the same key and will fail identically.
@@ -1710,6 +1799,10 @@ function decideComboFailure(
   // adapter grants it (the words alone prove nothing for another provider); it must precede the
   // generic invalid_request_error stop.
   if (options?.failedAdapter === "kiro" && isKiroAccountProfileRefusal(status, message)) return "hop";
+  // Devin cloud Connect-RPC rejects requests with invalid_argument when tool schemas, protobuf structures,
+  // or model-specific parameters do not match Cognition's validator. This is target-local: other
+  // combo candidates (Claude, OpenAI, Grok, DeepSeek) are fully capable of serving the turn.
+  if (isDevinInvalidArgumentRefusal(status, message, rawCode, options)) return "hop";
   // A structured account-window exhaustion code is provider-state evidence even inside a
   // 400 / invalid_request_error envelope, so it must precede that stop. Exhaustion prose alone
   // never reaches this arm: a validation error can quote quota wording back (#7625).

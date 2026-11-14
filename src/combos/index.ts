@@ -51,6 +51,7 @@ export {
   remainingComboCooldownMs,
   comboFailureDecision,
   comboFailureCooldownScope,
+  isDevinInvalidArgumentRefusal,
   type ComboFailureDecision,
   type ComboFailureCooldownScope,
   type CommittedTerminalCooldownFacts,

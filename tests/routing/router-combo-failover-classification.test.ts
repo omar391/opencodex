@@ -13,6 +13,7 @@ import {
   comboFailureCooldownScope,
   comboFailureDecision,
   coolComboTargetForCommittedTerminal,
+  isDevinInvalidArgumentRefusal,
   isMalformedResponseFormatRequest,
   isOpenRouterOpaque400Envelope,
   isProviderModerationRefusal,
@@ -1816,3 +1817,56 @@ describe("committed-terminal combo cooldown", () => {
     expect(isComboTargetInCooldown("free", first, now + 11 * 60_000)).toBe(true);
   });
 });
+
+describe("Devin cloud invalid_argument refusal", () => {
+  const reportedMessage = "Devin cloud error invalid_argument: Cognition chat failed (invalid_argument) (cloud trace ID: n/a)";
+  const wrappedEnvelope = `Provider error 400: {"error":{"message":"${reportedMessage}","type":"invalid_request_error","code":"invalid_argument"}}`;
+  const rawCognitionMessage = "Cognition chat failed (invalid_argument) (cloud trace ID: n/a)";
+
+  test("hops on reported Devin cloud invalid_argument error envelope and message", () => {
+    expect(isDevinInvalidArgumentRefusal(400, wrappedEnvelope, "invalid_argument")).toBe(true);
+    expect(comboFailureDecision(400, wrappedEnvelope, { code: "invalid_argument", failedAdapter: "devin" })).toBe("hop");
+    expect(comboFailureDecision(400, wrappedEnvelope, { code: "invalid_argument" })).toBe("hop");
+    expect(comboFailureDecision(400, wrappedEnvelope)).toBe("hop");
+
+    expect(isDevinInvalidArgumentRefusal(400, reportedMessage, "invalid_argument")).toBe(true);
+    expect(comboFailureDecision(400, reportedMessage, { code: "invalid_argument", failedAdapter: "devin" })).toBe("hop");
+    expect(comboFailureDecision(400, reportedMessage, { code: "invalid_argument" })).toBe("hop");
+    expect(comboFailureDecision(400, reportedMessage)).toBe("hop");
+  });
+
+  test("hops when failedAdapter is devin with Cognition invalid_argument message", () => {
+    expect(isDevinInvalidArgumentRefusal(400, rawCognitionMessage, "invalid_argument", { failedAdapter: "devin" })).toBe(true);
+    expect(comboFailureDecision(400, rawCognitionMessage, { code: "invalid_argument", failedAdapter: "devin" })).toBe("hop");
+  });
+
+  test("cools only target on Devin invalid_argument refusal", () => {
+    expect(comboFailureCooldownScope(400, wrappedEnvelope, { code: "invalid_argument", failedAdapter: "devin" })).toBe("target");
+    expect(comboFailureCooldownScope(400, wrappedEnvelope, { code: "invalid_argument" })).toBe("target");
+    expect(comboFailureCooldownScope(400, reportedMessage, { code: "invalid_argument" })).toBe("target");
+    expect(comboFailureCooldownScope(400, rawCognitionMessage, { code: "invalid_argument", failedAdapter: "devin" })).toBe("target");
+  });
+
+  test("hard stops outrank Devin invalid_argument refusal", () => {
+    const originReject = `Provider error 400: {"error":{"message":"${reportedMessage}","type":"invalid_request_error","code":"origin_rejected"}}`;
+    expect(isDevinInvalidArgumentRefusal(400, originReject, "origin_rejected", { failedAdapter: "devin" })).toBe(false);
+    expect(comboFailureDecision(400, originReject, { code: "origin_rejected", failedAdapter: "devin" })).toBe("stop");
+
+    const cyberReject = `Provider error 400: {"error":{"message":"${reportedMessage}","type":"invalid_request_error","code":"cyber_policy"}}`;
+    expect(isDevinInvalidArgumentRefusal(400, cyberReject, "cyber_policy", { failedAdapter: "devin" })).toBe(false);
+    expect(comboFailureDecision(400, cyberReject, { code: "cyber_policy", failedAdapter: "devin" })).toBe("stop");
+  });
+
+  test("reflected validation text quoting Devin phrase stays terminal", () => {
+    const reflected = `Invalid parameter: text cannot contain '${reportedMessage}'`;
+    expect(isDevinInvalidArgumentRefusal(400, reflected, "invalid_argument", { failedAdapter: "devin" })).toBe(false);
+    expect(comboFailureDecision(400, reflected, { code: "invalid_argument", failedAdapter: "devin" })).toBe("stop");
+  });
+
+  test("non-Devin generic invalid_argument 400 stays terminal", () => {
+    const generic400 = '{"error":{"message":"Invalid argument provided","type":"invalid_request_error","code":"invalid_argument"}}';
+    expect(isDevinInvalidArgumentRefusal(400, generic400, "invalid_argument", { failedAdapter: "openai" })).toBe(false);
+    expect(comboFailureDecision(400, generic400, { code: "invalid_argument", failedAdapter: "openai" })).toBe("stop");
+  });
+});
+
