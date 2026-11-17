@@ -793,7 +793,7 @@ export async function preparePassthroughExchange(
      */
     const claimPreHeaderResend = (): boolean =>
       authorizeResendForRecovery("pre-header", "connection-reset", ambiguousResend()).allowed;
-    const isReplaySafe = (): boolean => parsed._compactionRequest === true || requestIsSelfContained();
+    const isReplaySafe = (): boolean => (parsed._compactionRequest === true && (parsed._rawBody as { store?: unknown } | null | undefined)?.store === false) || requestIsSelfContained();
     /**
      * The one replacement send the ambiguous rows at the end of the recovery loop may buy: an SSE
      * body that died before any output, and a Codex WebSocket that died under its create frame
