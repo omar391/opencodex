@@ -52,6 +52,7 @@ import { toolChoiceToChatFormat, toolsToChatFormatForProvider } from "./openai-c
 import { freeformToolsByWireName, type FreeformToolIdentity, reconcileStructuredToolCall, reconcileStructuredToolCalls } from "./openai-chat/serialized-tool-call-content";
 import { StandaloneBareToolCallBuffer, reconcileStandaloneBareToolCallEvents } from "./openai-chat/standalone-bare-tool-calls";
 import { COMPLETED_TOOL_BLOCKS_PROTOCOL, completedToolBlocksEnabled, completedToolPrefix, observeCompletedToolBlock, type PendingChatToolCall } from "./openai-chat/completed-tool-blocks";
+import { isAmpersandModel } from "../providers/ampersand";
 
 export { stripBracketedModelSuffix } from "./openai-chat/wire";
 export { buildOpenAIChatPassthroughRequest } from "./openai-chat/passthrough";
@@ -140,7 +141,7 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
         if (vercelRouting) body.provider = vercelGatewayProviderPayload(vercelRouting);
         if (tools) body.tools = tools;
         if (tools && toolChoice !== undefined) {
-          body.tool_choice = modelInList(provider.autoToolChoiceOnlyModels, parsed.modelId)
+          body.tool_choice = modelInList(provider.autoToolChoiceOnlyModels, parsed.modelId) || isAmpersandModel(parsed.modelId)
             ? (toolChoice === "none" ? "none" : "auto")
             : toolChoice;
         }

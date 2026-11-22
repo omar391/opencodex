@@ -4,6 +4,10 @@ import {
   comboFailureDecision,
 } from "../../src/combos/failover";
 import { consumeComboFailure } from "../../src/server/responses/core-combo-failure";
+import { isAmpersandModel } from "../../src/providers/ampersand";
+import { chatCanPreserveMandatoryToolChoice } from "../../src/server/responses/combo-required-tool-contract";
+import { createOpenAIChatAdapter } from "../../src/adapters/openai-chat";
+import type { OcxParsedRequest, OcxProviderConfig } from "../../src/types";
 
 describe("unoffered tool-call refusal", () => {
   const verdict = "The model called a function that was not offered in tools.";
@@ -17,18 +21,32 @@ describe("unoffered tool-call refusal", () => {
     for (const message of [
       reported,
       `Provider error 400: ${reported}`,
+      `>Provider error 400: ${reported}`,
+      `> Provider error 400: ${reported}`,
+      `>>Provider error 400: ${reported}`,
       `data: ${reported}`,
       `Provider error 400: data: ${reported}`,
+      `>Provider error 400: data: ${reported}`,
+      `> Provider error 400: data: ${reported}`,
       verdict,
       `Provider error 400: ${verdict}`,
+      `>Provider error 400: ${verdict}`,
+      `> Provider error 400: ${verdict}`,
+      `>>Provider error 400: ${verdict}`,
       JSON.stringify({ message: verdict, type: "upstream_error", code: null }),
       JSON.stringify({ error: verdict, type: "upstream_error", code: null }),
+      JSON.stringify({ error: { message: `>Provider error 400: ${verdict}`, type: "upstream_error", code: null } }),
+      JSON.stringify({ error: { message: `> Provider error 400: ${verdict}`, type: "upstream_error", code: null } }),
     ]) {
       expect(comboFailureDecision(400, message)).toBe("hop");
       expect(comboFailureCooldownScope(400, message)).toBe("none");
     }
     expect(comboFailureDecision(400, reported, { code: "upstream_error" })).toBe("hop");
     expect(comboFailureCooldownScope(400, reported, { code: "upstream_error" })).toBe("none");
+    expect(comboFailureDecision(400, `>Provider error 400: ${verdict}`)).toBe("hop");
+    expect(comboFailureCooldownScope(400, `>Provider error 400: ${verdict}`)).toBe("none");
+    expect(comboFailureDecision(400, `> Provider error 400: ${verdict}`)).toBe("hop");
+    expect(comboFailureCooldownScope(400, `> Provider error 400: ${verdict}`)).toBe("none");
   });
 
   test("request-validation spellings of the same verdict still hop", () => {
@@ -162,5 +180,82 @@ describe("unoffered tool-call refusal", () => {
     expect(comboFailureDecision(400, nestedPolicy)).toBe("stop");
     expect(comboFailureCooldownScope(400, nestedPolicy)).not.toBe("none");
     expect(comboFailureCooldownScope(400, mixed)).toBe("target");
+  });
+
+  test("ampersand models enforce auto tool choice and receive guidance against unoffered tools", () => {
+    expect(isAmpersandModel("humansand/ampersand-v0.1")).toBe(true);
+    expect(isAmpersandModel("ampersand-v0.1")).toBe(true);
+    expect(isAmpersandModel("ampersand")).toBe(true);
+    expect(isAmpersandModel("vendor/ampersand-preview")).toBe(true);
+    expect(isAmpersandModel("gpt-4o")).toBe(false);
+    expect(isAmpersandModel(undefined)).toBe(false);
+
+    const provider: OcxProviderConfig = {
+      adapter: "openai-chat",
+      baseUrl: "https://ai-gateway.vercel.sh/v1",
+      apiKey: "key",
+    };
+
+    // Ampersand cannot preserve mandatory tool choice in combo admissions
+    const mandatoryBody = {
+      model: "humansand/ampersand-v0.1",
+      tool_choice: "required",
+      tools: [{ type: "function", function: { name: "lookup" } }],
+    };
+    expect(chatCanPreserveMandatoryToolChoice(mandatoryBody, provider, "humansand/ampersand-v0.1")).toBe(false);
+
+    // Forced tool choice becomes "auto" on chat adapter wire
+    const adapter = createOpenAIChatAdapter(provider);
+    const parsedRequired: OcxParsedRequest = {
+      modelId: "humansand/ampersand-v0.1",
+      stream: false,
+      context: {
+        messages: [{ role: "user", content: "perform task" }],
+        tools: [{ name: "lookup", parameters: { type: "object" } }],
+      },
+      options: {
+        toolChoice: "required",
+      },
+    };
+    const reqRequired = adapter.buildRequest(parsedRequired) as { body: string };
+    const bodyRequired = JSON.parse(reqRequired.body);
+    expect(bodyRequired.tool_choice).toBe("auto");
+
+    // "none" omits tools and tool_choice from wire
+    const parsedNone: OcxParsedRequest = {
+      modelId: "humansand/ampersand-v0.1",
+      stream: false,
+      context: {
+        messages: [{ role: "user", content: "perform task" }],
+        tools: [{ name: "lookup", parameters: { type: "object" } }],
+      },
+      options: {
+        toolChoice: "none",
+      },
+    };
+    const reqNone = adapter.buildRequest(parsedNone) as { body: string };
+    const bodyNone = JSON.parse(reqNone.body);
+    expect(bodyNone.tools).toBeUndefined();
+    expect(bodyNone.tool_choice).toBeUndefined();
+
+    // "auto" stays "auto"
+    const parsedAuto: OcxParsedRequest = {
+      modelId: "humansand/ampersand-v0.1",
+      stream: false,
+      context: {
+        messages: [{ role: "user", content: "perform task" }],
+        tools: [{ name: "lookup", parameters: { type: "object" } }],
+      },
+      options: {
+        toolChoice: "auto",
+      },
+    };
+    const reqAuto = adapter.buildRequest(parsedAuto) as { body: string };
+    const bodyAuto = JSON.parse(reqAuto.body);
+    expect(bodyAuto.tool_choice).toBe("auto");
+
+    // Prompt guidance warns ampersand against calling unoffered pass or send_message
+    const systemMsg = bodyRequired.messages.find((m: { role: string }) => m.role === "system");
+    expect(systemMsg?.content).toContain("Do not call pass or send_message unless this turn's catalog lists those exact names.");
   });
 });

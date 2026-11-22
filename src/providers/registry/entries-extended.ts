@@ -1222,7 +1222,15 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
       "muse-spark-1.3-contributor-free": { graceMs: 5_000 },
     },
   },
-  { id: "vercel-ai-gateway", label: "Vercel AI Gateway", baseUrl: "https://ai-gateway.vercel.sh/v1", adapter: "openai-chat", authKind: "key", dashboardUrl: "https://vercel.com/dashboard" },
+  {
+    id: "vercel-ai-gateway",
+    label: "Vercel AI Gateway",
+    baseUrl: "https://ai-gateway.vercel.sh/v1",
+    adapter: "openai-chat",
+    authKind: "key",
+    dashboardUrl: "https://vercel.com/dashboard",
+    autoToolChoiceOnlyModels: ["humansand/ampersand-v0.1", "ampersand-v0.1"],
+  },
   {
     // Opper: EU-hosted AI gateway (Opper AI AB, Stockholm). One OpenAI-compatible endpoint and one
     // key in front of 30+ upstream providers. Seeded ids are Opper *pools* (bare names such as

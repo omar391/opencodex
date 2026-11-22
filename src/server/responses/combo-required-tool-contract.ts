@@ -2,6 +2,7 @@ import { REQUIRED_TOOL_CONTRACT_CODE } from "../../lib/errors";
 import { mapToolChoice } from "../../responses/parser-tools";
 import { extractHostedWebSearch } from "../../web-search/synthetic-tool";
 import { modelInList, type OcxProviderConfig, type OcxTool } from "../../types";
+import { isAmpersandModel } from "../../providers/ampersand";
 import { hasResponseMediaType } from "../../lib/http-response-semantics";
 import { applyReplayRefusalClientHeaders, isNonReplayableResponse, markResponseNonReplayable } from "../../lib/upstream-retry";
 import { clientWireOf } from "../inference/client-wire";
@@ -45,7 +46,7 @@ export function hasMandatoryToolChoice(rawBody: unknown): boolean {
 /** A translated Chat target must not turn a mandatory selector into auto or none. */
 export function chatCanPreserveMandatoryToolChoice(rawBody: unknown, provider: OcxProviderConfig, modelId: string, effectiveTools?: readonly OcxTool[]): boolean {
   if (!hasMandatoryToolChoice(rawBody)) return true;
-  if (modelInList(provider.autoToolChoiceOnlyModels, modelId)) return false;
+  if (modelInList(provider.autoToolChoiceOnlyModels, modelId) || isAmpersandModel(modelId)) return false;
   const body = rawBody as Record<string, unknown>;
   const choice = body.tool_choice;
   const tools = body.tools;

@@ -1026,7 +1026,7 @@ const UNOFFERED_TOOL_CALL_MESSAGES = [
 const UNOFFERED_TOOL_CALL_CARRIERS = ["response", "last_error", "details", "detail", "errors"] as const;
 
 function isUnofferedToolCallVerdict(text: string): boolean {
-  const value = text.trim().replace(/^Provider error \d{3}: /, "").trim();
+  const value = text.trim().replace(/^(?:>\s*)*Provider error \d{3}: /, "").trim();
   return UNOFFERED_TOOL_CALL_MESSAGES.some(pattern => pattern.test(value));
 }
 
@@ -1038,7 +1038,7 @@ function isUnofferedToolCallVerdict(text: string): boolean {
 function isUnofferedToolCallCarrierVerdict(text: string): boolean {
   let value = text.trim();
   for (let depth = 0; depth < 3; depth += 1) {
-    const proxyPrefix = /^Provider error \d{3}: /.exec(value);
+    const proxyPrefix = /^(?:>\s*)*Provider error \d{3}: /.exec(value);
     if (proxyPrefix) {
       value = value.slice(proxyPrefix[0].length).trim();
       continue;
@@ -1053,7 +1053,7 @@ function isUnofferedToolCallCarrierVerdict(text: string): boolean {
 }
 
 function hasUnofferedToolCallCarrierPrefix(text: string): boolean {
-  return /^Provider error \d{3}: /.test(text) || (text.startsWith("data:") && !text.includes("\n"));
+  return /^(?:>\s*)*Provider error \d{3}: /.test(text) || (text.startsWith("data:") && !text.includes("\n"));
 }
 
 function unofferedToolCallRecordShape(record: Record<string, unknown>): boolean {
@@ -1114,7 +1114,7 @@ export function isUnofferedToolCallRefusal(
   if (!UNOFFERED_TOOL_CALL_CODES.has(normalizedFailureCode(code))) return false;
   let text = message.trim();
   for (let depth = 0; depth < 4; depth += 1) {
-    const proxyPrefix = /^Provider error \d{3}: /.exec(text);
+    const proxyPrefix = /^(?:>\s*)*Provider error \d{3}: /.exec(text);
     if (proxyPrefix) text = text.slice(proxyPrefix[0].length).trim();
     if (text.startsWith("data:") && !text.includes("\n")) text = text.slice("data:".length).trim();
     let payload: unknown;

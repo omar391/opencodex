@@ -60,7 +60,7 @@ function isProxyFormattedFailure(text: string): boolean {
     const parsed: unknown = JSON.parse(text);
     const error = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as { error?: unknown }).error : undefined;
     const message = error && typeof error === "object" && !Array.isArray(error) ? (error as { message?: unknown }).message : undefined;
-    return typeof message === "string" && /^Provider error \d{3}\b/.test(message);
+    return typeof message === "string" && /^(?:>\s*)*Provider error \d{3}\b/.test(message);
   } catch {
     return false;
   }

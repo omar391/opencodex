@@ -14,6 +14,7 @@ import type { ClaudeThinkingProjection } from "../../lib/claude-request-projecti
 import { inlineDocumentDataUrl } from "../../responses/inline-document";
 import type { OcxAssistantMessage, OcxContentPart, OcxParsedRequest, OcxProviderConfig, OcxTextContent, OcxThinkingContent, OcxToolCall } from "../../types";
 import { modelInList, namespacedToolName } from "../../types";
+import { isAmpersandModel } from "../../providers/ampersand";
 
 /**
  * The translated Chat route has no video mapping: this adapter does not implement one,
@@ -213,9 +214,13 @@ export function messagesToChatFormat(parsed: OcxParsedRequest, provider: OcxProv
   const toolCatalogNudge = shouldInjectNonOpenAIToolCatalogNudge(provider)
     ? buildNonOpenAIToolCatalogNudgeForTools(context.tools, options.toolChoice)
     : undefined;
+  const ampersandNudge = (context.tools && context.tools.length > 0 && isAmpersandModel(parsed.modelId))
+    ? "Do not call pass or send_message unless this turn's catalog lists those exact names. If no tool is needed, respond directly with text."
+    : undefined;
   const systemParts = [
     ...(context.systemPrompt ?? []),
     ...(toolCatalogNudge ? [toolCatalogNudge] : []),
+    ...(ampersandNudge ? [ampersandNudge] : []),
   ];
   if (systemParts.length > 0) {
     const wireModelId = provider.modelSuffixBracketStrip
