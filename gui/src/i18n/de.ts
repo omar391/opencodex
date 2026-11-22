@@ -4604,4 +4604,13 @@ export const de: Record<TKey, string> = {
   "comboSuggest.enablePaid": "Führe {command} aus, um kostenpflichtige Ziele zu erlauben. Die Vorschläge übernehmen die Änderung beim nächsten Aktualisieren der Kombinationen.",
   "comboSuggest.draft.save": "Combo speichern",
   "comboSuggest.draft.saving": "Wird gespeichert…",
+  "modal.badge.acp": "ACP-Agent",
+  "modal.tab.acp": "ACP-Agenten",
+  "pws.acpBinaryPath": "Agent-Binärpfad",
+  "pws.acpAllowTools": "Allow agent tools",
+  "pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
+  "pws.acpBinaryPlaceholder": "Leer lassen für automatische Erkennung",
+  "pws.acpBinaryHint": "Überschreibt PATH- und T3-Tools-Erkennung für diesen Agenten. Leer lassen für automatische Erkennung.",
+  "pws.acpBinaryResolved": "Aufgelöste Binärdatei:",
+  "modal.acpAgentHint": "Führt eine lokale Agent-CLI aus (z. B. devin acp). Die Anmeldung und Abrechnung übernimmt der Agent selbst — kein API-Schlüssel nötig. Einen eigenen Binärpfad können Sie später in den Einstellungen festlegen.",
 };

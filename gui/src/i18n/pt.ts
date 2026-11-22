@@ -4599,4 +4599,13 @@ export const pt: Record<TKey, string> = {
   "comboSuggest.enablePaid": "Execute {command} para permitir destinos pagos. As sugestões refletem a mudança na próxima atualização dos combos.",
   "comboSuggest.draft.save": "Salvar combo",
   "comboSuggest.draft.saving": "Salvando…",
+  "modal.badge.acp": "Agente ACP",
+  "modal.tab.acp": "Agentes ACP",
+  "pws.acpBinaryPath": "Caminho do binário do agente",
+  "pws.acpAllowTools": "Allow agent tools",
+  "pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
+  "pws.acpBinaryPlaceholder": "Deixe vazio para detecção automática",
+  "pws.acpBinaryHint": "Substitui a detecção por PATH e ferramentas gerenciadas do T3 para este agente. Deixe vazio para detecção automática.",
+  "pws.acpBinaryResolved": "Binário resolvido:",
+  "modal.acpAgentHint": "Executa um agente CLI local (por exemplo, devin acp). O agente gerencia o próprio login e cobrança — nenhuma chave de API é necessária. Defina um caminho de binário personalizado depois em Configurações.",
 };

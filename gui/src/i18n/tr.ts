@@ -4627,4 +4627,13 @@ export const tr: Record<TKey, string> = {
   "comboSuggest.enablePaid": "Ücretli hedeflere izin vermek için {command} komutunu çalıştırın. Değişiklik, kombolar bir sonraki yenilendiğinde önerilere yansır.",
   "comboSuggest.draft.save": "Komboyu kaydet",
   "comboSuggest.draft.saving": "Kaydediliyor…",
+  "modal.badge.acp": "ACP aracısı",
+  "modal.tab.acp": "ACP aracılar",
+  "pws.acpBinaryPath": "Aracı ikili yolu",
+  "pws.acpAllowTools": "Allow agent tools",
+  "pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
+  "pws.acpBinaryPlaceholder": "Otomatik algılama için boş bırakın",
+  "pws.acpBinaryHint": "Bu aracının PATH ve T3 yönetilen araç algılamasını geçersiz kılar. Otomatik algılama için boş bırakın.",
+  "pws.acpBinaryResolved": "Çözümlenen ikili:",
+  "modal.acpAgentHint": "Yerel bir aracı CLI’si çalıştırır (örneğin devin acp). Oturum açma ve faturalandırma aracıya aittir — API anahtarı gerekmez. Özel ikili yolunu daha sonra Ayarlar’dan belirleyebilirsiniz.",
 };

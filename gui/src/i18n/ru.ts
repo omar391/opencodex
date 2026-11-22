@@ -4627,4 +4627,13 @@ export const ru: Record<TKey, string> = {
   "comboSuggest.enablePaid": "Выполните {command}, чтобы разрешить платные цели. Изменение отразится в предложениях при следующем обновлении комбинаций.",
   "comboSuggest.draft.save": "Сохранить комбо",
   "comboSuggest.draft.saving": "Сохранение…",
+  "modal.badge.acp": "ACP-агент",
+  "modal.tab.acp": "ACP-агенты",
+  "pws.acpBinaryPath": "Путь к бинарнику агента",
+  "pws.acpAllowTools": "Allow agent tools",
+  "pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
+  "pws.acpBinaryPlaceholder": "Оставьте пустым для автопоиска",
+  "pws.acpBinaryHint": "Переопределяет поиск по PATH и управляемым инструментам T3 для этого агента. Оставьте пустым для автопоиска.",
+  "pws.acpBinaryResolved": "Найденный бинарник:",
+  "modal.acpAgentHint": "Запускает локальный агент CLI (например, devin acp). Агент сам управляет входом и оплатой — API-ключ не нужен. Пользовательский путь к бинарнику можно задать позже в настройках.",
 };

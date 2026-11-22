@@ -4590,4 +4590,13 @@ export const zhTW: Record<TKey, string> = {
   "comboSuggest.enablePaid": "執行 {command} 以允許付費目標。下次重新整理組合時，建議將反映此變更。",
   "comboSuggest.draft.save": "儲存組合",
   "comboSuggest.draft.saving": "正在儲存…",
+  "modal.badge.acp": "ACP 代理程式",
+  "modal.tab.acp": "ACP 代理程式",
+  "pws.acpBinaryPath": "代理程式二進位路徑",
+  "pws.acpAllowTools": "Allow agent tools",
+  "pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
+  "pws.acpBinaryPlaceholder": "留空以自動偵測",
+  "pws.acpBinaryHint": "覆寫此代理的 PATH 和 T3 管理工具偵測。留空以自動偵測。",
+  "pws.acpBinaryResolved": "解析出的二進位檔：",
+  "modal.acpAgentHint": "執行本機代理 CLI（例如 devin acp）。登入與計費由代理自行管理——無需 API 金鑰。稍後可在「設定」中指定自訂二進位路徑。",
 };

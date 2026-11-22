@@ -4596,4 +4596,13 @@ export const vi: Record<TKey, string> = {
   "comboSuggest.enablePaid": "Chạy {command} để cho phép đích trả phí. Đề xuất sẽ áp dụng thay đổi khi làm mới danh sách tổ hợp lần tiếp theo.",
   "comboSuggest.draft.save": "Lưu combo",
   "comboSuggest.draft.saving": "Đang lưu…",
+  "modal.badge.acp": "Tác tử ACP",
+  "modal.tab.acp": "Tác tử ACP",
+  "pws.acpBinaryPath": "Đường dẫn binary tác tử",
+  "pws.acpAllowTools": "Allow agent tools",
+  "pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
+  "pws.acpBinaryPlaceholder": "Để trống để tự động phát hiện",
+  "pws.acpBinaryHint": "Ghi đè việc phát hiện qua PATH và công cụ do T3 quản lý cho tác tử này. Để trống để tự động phát hiện.",
+  "pws.acpBinaryResolved": "Binary được phân giải:",
+  "modal.acpAgentHint": "Chạy một tác tử CLI cục bộ (ví dụ devin acp). Tác tử tự quản lý đăng nhập và thanh toán — không cần khóa API. Đặt đường dẫn binary tùy chỉnh sau trong Cài đặt.",
 };

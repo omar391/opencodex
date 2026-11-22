@@ -4626,4 +4626,13 @@ export const ja: Record<TKey, string> = {
   "comboSuggest.enablePaid": "有料ターゲットを許可するには {command} を実行してください。次回コンボを更新すると候補に反映されます。",
   "comboSuggest.draft.save": "コンボを保存",
   "comboSuggest.draft.saving": "保存中…",
+  "modal.badge.acp": "ACP エージェント",
+  "modal.tab.acp": "ACP エージェント",
+  "pws.acpBinaryPath": "エージェントバイナリパス",
+  "pws.acpAllowTools": "Allow agent tools",
+  "pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
+  "pws.acpBinaryPlaceholder": "空欄で自動検出",
+  "pws.acpBinaryHint": "このエージェントの PATH および T3 管理ツール検出を上書きします。空欄で自動検出。",
+  "pws.acpBinaryResolved": "解決されたバイナリ:",
+  "modal.acpAgentHint": "ローカルのエージェント CLI（例: devin acp）を実行します。サインインと課金はエージェント自身が管理するため、API キーは不要です。カスタムバイナリパスは後で設定で指定できます。",
 };

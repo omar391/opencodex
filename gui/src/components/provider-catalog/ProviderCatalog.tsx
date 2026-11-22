@@ -16,6 +16,7 @@ import {
   dropPresetsCoveredByAccounts,
   type CatalogPreset,
   type CatalogTier,
+  isAcpCatalogPreset,
 } from "./provider-presets";
 import { type CatalogLoginHint } from "./login-hint-visibility";
 import CatalogAccountRow from "./CatalogAccountRow";
@@ -27,13 +28,18 @@ export type { AccountLoginRow, AccountLoginStatus };
 
 export type { CatalogTier };
 
-/** Tab order. Local sits between Free and Paid: logged in, free cloud, my machine, billed. */
-const TIER_TABS = ["accounts", "free", "local", "paid"] as const;
+/**
+ * Tab order. Local sits between Free and Paid: logged in, free cloud, my machine,
+ * agent CLIs, billed. ACP agents are not endpoints at all — the installed CLI
+ * owns the harness — so they get their own tab ahead of the paid API rows.
+ */
+const TIER_TABS = ["accounts", "free", "local", "acp", "paid"] as const;
 
 const TIER_TAB_LABEL = {
   accounts: "modal.tab.accounts",
   free: "modal.tab.free",
   local: "modal.tab.local",
+  acp: "modal.tab.acp",
   paid: "modal.tab.paid",
 } as const;
 
@@ -227,7 +233,11 @@ export default function ProviderCatalog({
     // A subscription CLI row is keyless because the CLI owns the account, not because it is
     // free: it gets its own badge, and neither the Free nor the API-key badge.
     const subscriptionCli = isSubscriptionCliProvider(p);
-    const auth = subscriptionCli ? <span className="badge badge-amber">{t("modal.badge.subscriptionCli")}</span>
+    // Same shape for ACP agents: the agent CLI owns auth AND billing, so the row
+    // carries an agent badge instead of Free/API-key.
+    const acpAgent = isAcpCatalogPreset(p);
+    const auth = acpAgent ? <span className="badge badge-accent">{t("modal.badge.acp")}</span>
+      : subscriptionCli ? <span className="badge badge-amber">{t("modal.badge.subscriptionCli")}</span>
       : p.codexAccountMode === "direct" ? <span className="badge badge-green">{t("modal.badge.direct")}</span>
       : p.codexAccountMode === "pool" ? <span className="badge badge-accent">{t("modal.badge.pool")}</span>
       : p.auth === "oauth" ? <span className="badge badge-accent">{t("modal.badge.oauth")}</span>
@@ -237,7 +247,7 @@ export default function ProviderCatalog({
       : <span className="badge badge-muted">{t("modal.badge.apiKey")}</span>;
     // Free pricing is orthogonal to auth: NVIDIA (freeTier + key required) shows BOTH
     // the Free badge and the API-key badge — free pricing never hides a key requirement.
-    const free = (p.freeTier || p.keyOptional) && p.auth === "key" && !subscriptionCli
+    const free = (p.freeTier || p.keyOptional) && p.auth === "key" && !subscriptionCli && !acpAgent
       ? <span className="badge badge-green">{t("modal.badge.free")}</span>
       : null;
     const sponsor = p.sponsor

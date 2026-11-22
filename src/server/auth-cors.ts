@@ -1367,6 +1367,8 @@ const PROVIDER_CONFIG_FIELD_POLICY = {
   estimateMissingUsage: "editor",
   tlsProfile: "editor",
   anthropicOAuthUserInstructions: "editor",
+  acpBinaryPath: "editor",
+  acpAllowTools: "editor",
 } as const satisfies Record<keyof OcxProviderConfig, ProviderConfigFieldPolicy>;
 
 type ProviderFieldWithPolicy<Policy extends ProviderConfigFieldPolicy> = {

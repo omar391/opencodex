@@ -4638,6 +4638,15 @@ export const en = {
   "comboSuggest.enablePaid": "Run {command} to allow paid targets. Suggestions pick up the change on the next combo refresh.",
   "comboSuggest.draft.save": "Save combo",
   "comboSuggest.draft.saving": "Saving…",
+  "modal.badge.acp": "ACP agent",
+  "modal.tab.acp": "ACP agents",
+  "pws.acpBinaryPath": "Agent binary path",
+  "pws.acpAllowTools": "Allow agent tools",
+  "pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
+  "pws.acpBinaryPlaceholder": "Leave empty to auto-detect",
+  "pws.acpBinaryHint": "Overrides PATH and T3 managed-tools discovery for this agent. Leave empty to auto-detect.",
+  "pws.acpBinaryResolved": "Resolved binary:",
+  "modal.acpAgentHint": "Runs a local agent CLI (for example devin acp). The agent owns its own sign-in and billing — no API key needed. Set a custom binary path later in Settings.",
 } as const;
 
 export type TKey = keyof typeof en;

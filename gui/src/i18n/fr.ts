@@ -4593,4 +4593,13 @@ export const fr: Record<TKey, string> = {
   "comboSuggest.enablePaid": "Exécutez {command} pour autoriser les cibles payantes. Les suggestions appliquent ce changement à la prochaine actualisation des combinaisons.",
   "comboSuggest.draft.save": "Enregistrer la combinaison",
   "comboSuggest.draft.saving": "Enregistrement…",
+  "modal.badge.acp": "Agent ACP",
+  "modal.tab.acp": "Agents ACP",
+  "pws.acpBinaryPath": "Chemin du binaire agent",
+  "pws.acpAllowTools": "Allow agent tools",
+  "pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
+  "pws.acpBinaryPlaceholder": "Laisser vide pour détecter automatiquement",
+  "pws.acpBinaryHint": "Remplace la détection PATH et des outils gérés T3 pour cet agent. Laisser vide pour détecter automatiquement.",
+  "pws.acpBinaryResolved": "Binaire résolu :",
+  "modal.acpAgentHint": "Exécute un agent CLI local (par exemple devin acp). L’agent gère sa propre connexion et sa facturation — aucune clé API requise. Définissez un chemin de binaire personnalisé plus tard dans les paramètres.",
 };

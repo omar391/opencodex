@@ -131,6 +131,9 @@ function ProviderSettingsForm({
   const [authMode, setAuthMode] = useState(initial.draft.authMode);
   const [apiKeyTransport, setApiKeyTransport] = useState(initial.draft.apiKeyTransport);
   const [note, setNote] = useState(initial.draft.note);
+  const [acpBinaryPath, setAcpBinaryPath] = useState(initial.draft.acpBinaryPath);
+  const [acpAllowTools, setAcpAllowTools] = useState(initial.draft.acpAllowTools ?? false);
+  const [acpBinary, setAcpBinary] = useState<{ path: string; source: string } | null>(null);
   const [allowPrivateNetwork, setAllowPrivateNetwork] = useState(initial.draft.allowPrivateNetwork);
   const [preserveReasoningReplay, setPreserveReasoningReplay] = useState(initial.draft.preserveReasoningReplay);
   const [liveModels, setLiveModels] = useState(initial.draft.liveModels);
@@ -180,9 +183,10 @@ function ProviderSettingsForm({
 
   const draft = useMemo<ProviderSettingsDraft>(() => ({
     adapter, baseUrl, project, location, defaultModel, authMode, apiKeyTransport, note,
+    acpBinaryPath, acpAllowTools,
     allowPrivateNetwork, preserveReasoningReplay, liveModels, cursorHttpVersion, subscriptionRetries,
     pacingEnabled, keyPacing, pacingRpm, pacingDelay, pacingConcurrency, pacingModels,
-  }), [adapter, allowPrivateNetwork, apiKeyTransport, authMode, baseUrl, cursorHttpVersion, defaultModel,
+  }), [acpAllowTools, acpBinaryPath, adapter, allowPrivateNetwork, apiKeyTransport, authMode, baseUrl, cursorHttpVersion, defaultModel,
     keyPacing, liveModels, location, note, pacingConcurrency, pacingDelay, pacingEnabled, pacingModels, pacingRpm,
     preserveReasoningReplay, project, subscriptionRetries]);
 
@@ -195,6 +199,8 @@ function ProviderSettingsForm({
     setAuthMode(next.authMode);
     setApiKeyTransport(next.apiKeyTransport);
     setNote(next.note);
+    setAcpBinaryPath(next.acpBinaryPath);
+    setAcpAllowTools(next.acpAllowTools ?? false);
     setAllowPrivateNetwork(next.allowPrivateNetwork);
     setPreserveReasoningReplay(next.preserveReasoningReplay);
     setLiveModels(next.liveModels);
@@ -313,6 +319,25 @@ function ProviderSettingsForm({
   const supportsReasoningReplay = !isCatalogProviderId(item.name)
     && canConfigureResponsesReasoningReplay({ adapter, baseUrl, authMode });
   const vertexSettings = isVertexProvider(item) && (item.name === "google-vertex" || adapter.trim() === "google");
+  const isAcp = adapter.trim() === "acp";
+
+  useEffect(() => {
+    if (adapter.trim() !== "acp" || apiBase === undefined) return;
+    const bounded = createBoundedFetch(10_000);
+    let cancelled = false;
+    fetch(`${apiBase}/api/providers`, { signal: bounded.signal })
+      .then(readJsonIfOk)
+      .then((rows: unknown) => {
+        if (cancelled || !Array.isArray(rows)) return;
+        const row = rows.find(candidate =>
+          typeof candidate === "object" && candidate !== null
+          && (candidate as { name?: unknown }).name === item.name) as { acpBinary?: { path: string; source: string } | null } | undefined;
+        setAcpBinary(row?.acpBinary ?? null);
+      })
+      .catch(() => { if (!cancelled) setAcpBinary(null); });
+    return () => { cancelled = true; bounded.clear(); };
+  }, [adapter, apiBase, item.name]);
+
   useEffect(() => { onDirtyChange?.(dirty); return () => onDirtyChange?.(false); }, [dirty, onDirtyChange]);
 
   const modelOptions = useMemo(() => {
@@ -532,14 +557,14 @@ function ProviderSettingsForm({
             options={adapterOptions.map(a => ({ value: a, label: a }))} />
         )}
       </label>
-      <ProviderProtocolPanel
+      {!isAcp && <ProviderProtocolPanel
         apiBase={apiBase}
         providerName={item.name}
         savedAdapter={item.adapter}
         draftAdapter={adapter.trim()}
         refreshKey={`${item.baseUrl}|${item.authMode ?? ""}`}
-      />
-      {hasEndpointPicker ? (
+      />}
+      {!isAcp && (hasEndpointPicker ? (
         <>
           <label className="pwi-settings-field">
             <span className="pwi-settings-label">{t("modal.endpoint")}</span>
@@ -566,7 +591,7 @@ function ProviderSettingsForm({
           <span className="pwi-settings-label">{t("modal.baseUrl")}</span>
           <input className="input" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} readOnly={plainBaseUrlLocked} disabled={plainBaseUrlLocked} />
         </label>
-      )}
+      ))}
       {vertexSettings && <>
         <label className="pwi-settings-field">
           <span className="pwi-settings-label">{t("modal.vertexProject")}</span>
@@ -602,6 +627,26 @@ function ProviderSettingsForm({
           <span className="pwi-settings-hint">{t("pws.cursorTransportDesc")}</span>
         </label>
       )}
+      {isAcp && (
+        <label className="pwi-settings-field">
+          <span className="pwi-settings-label">{t("pws.acpBinaryPath")}</span>
+          <input className="input" value={acpBinaryPath} onChange={e => setAcpBinaryPath(e.target.value)} placeholder={t("pws.acpBinaryPlaceholder")} />
+          <span className="pwi-settings-hint">{t("pws.acpBinaryHint")}</span>
+          {acpBinary?.path && (
+            <span className="pwi-settings-hint">
+              {t("pws.acpBinaryResolved")}{" "}
+              <code className="chip">{acpBinary.path}</code> ({acpBinary.source})
+            </span>
+          )}
+        </label>
+      )}
+      {isAcp && (
+        <label className="pwi-settings-check">
+          <input type="checkbox" checked={acpAllowTools} onChange={e => setAcpAllowTools(e.target.checked)} />
+          <span className="pwi-settings-label">{t("pws.acpAllowTools")}</span>
+          <span className="pwi-settings-hint">{t("pws.acpAllowToolsHint")}</span>
+        </label>
+      )}
       <label className="pwi-settings-field">
         <span className="pwi-settings-label">{t("pws.cell.defaultModel")}</span>
         {modelOptions.length > 0 ? (
@@ -611,7 +656,7 @@ function ProviderSettingsForm({
           <input className="input" value={defaultModel} onChange={e => setDefaultModel(e.target.value)} placeholder={t("pws.optionalPlaceholder")} />
         )}
       </label>
-      <label className="pwi-settings-field">
+      {!isAcp && <label className="pwi-settings-field">
         <span className="pwi-settings-label">{t("pws.authMode")}</span>
         {isPreset ? <input className="input" value={authModeLabel(item, t)} readOnly disabled /> : (
           <Select fullWidth label={t("pws.authMode")} value={authMode} onChange={setAuthMode} options={[
@@ -621,7 +666,7 @@ function ProviderSettingsForm({
             { value: "local", label: t("modal.badge.local") },
           ]} />
         )}
-      </label>
+      </label>}
       {isCanonicalOpenAi && (
         <label className="pwi-settings-field" ref={accountModeFieldRef} tabIndex={-1}>
           <span className="pwi-settings-label">{t("codexAuth.accountModeTitle")}</span>
@@ -669,12 +714,12 @@ function ProviderSettingsForm({
         <span className="pwi-settings-label">{t("pws.note")}</span>
         <textarea className="input pwi-settings-textarea" value={note} onChange={e => setNote(e.target.value)} rows={2} />
       </label>
-      <label className="pwi-settings-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      {!isAcp && <label className="pwi-settings-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <input type="checkbox" checked={allowPrivateNetwork} onChange={e => setAllowPrivateNetwork(e.target.checked)} />
         <span className="pwi-settings-label">{t("pws.allowPrivateNetwork")}</span>
-      </label>
+      </label>}
       {supportsReasoningReplay && <ResponsesReasoningReplayControl checked={preserveReasoningReplay} onChange={setPreserveReasoningReplay} />}
-      <label className="pwi-settings-field" style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+      {!isAcp && <label className="pwi-settings-field" style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
         <input
           type="checkbox"
           checked={liveModels}
@@ -685,11 +730,11 @@ function ProviderSettingsForm({
           <span className="pwi-settings-label">{t("pws.liveModels")}</span>
           <span className="muted text-label" style={{ display: "block", marginTop: 2 }}>{t("pws.liveModelsDesc")}</span>
         </span>
-      </label>
+      </label>}
       {apiBase !== undefined && liveModelDiscoverySupported && item.liveModels !== false && (
         <ProviderModelDiscovery key={JSON.stringify([targetKey, apiBase, item.name])} apiBase={apiBase} provider={item.name} />
       )}
-      <section className="pwi-pacing-card" aria-labelledby="pwi-pacing-title">
+      {!isAcp && <section className="pwi-pacing-card" aria-labelledby="pwi-pacing-title">
         <div className="pwi-pacing-head">
           <div><h3 id="pwi-pacing-title">{t("pws.pacingTitle")}</h3><p>{t("pws.pacingDesc")}</p></div>
           <label className="pwi-pacing-toggle"><input type="checkbox" checked={pacingEnabled} onChange={e => setPacingEnabled(e.target.checked)} /> {t("pws.pacingEnabled")}</label>
@@ -719,7 +764,7 @@ function ProviderSettingsForm({
           rule.minIntervalMs !== undefined ? `${rule.minIntervalMs} ms` : undefined,
           rule.maxConcurrentRequests !== undefined ? `${rule.maxConcurrentRequests} ${t("pws.pacingCapUnit")}` : undefined,
         ].filter(part => part !== undefined).join(" · ")}</span><button type="button" className="btn btn-ghost btn-sm" onClick={() => setPacingModels(current => Object.fromEntries(Object.entries(current).filter(([id]) => id !== model)))} aria-label={t("pws.pacingRemoveModel", { model })}>{t("pws.pacingRemove")}</button></div>)}</div>}
-      </section>
+      </section>}
       {conflict && (
         <div className="pwi-settings-conflict" role="alert">
           <p>{t("pws.draftConflict")}</p>

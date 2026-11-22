@@ -10,6 +10,7 @@ import {
 } from "../base-url-choices";
 import { COMMAND_CODE_MODEL_REASONING_EFFORTS } from "../command-code-efforts";
 import { COMMAND_CODE_DECISION_MODEL_DISCOVERY_FILTER } from "../command-code-decision-models";
+import { DEVIN_DEFAULT_EFFORTS } from "../../adapters/devin/live-models";
 import { MIMO_THINKING_CAPABILITIES, MIMO_THINKING_MODELS } from "../mimo-thinking";
 import {
   CODEBUDDY_CN_MODELS,
@@ -1830,27 +1831,139 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     note: "Runs Claude subscription traffic through Anthropic's own harness: the official Claude Code CLI headlessly (`claude -p`), one turn per request. OpenCodex stores no Claude token and injects none into CLI requests (quota admission only reads it in memory) — the CLI signs in and bills the account itself, which is why this row is keyless and an API key saved here never reaches the harness (use `anthropic-apikey` for key billing). The sign-in is the one of the user this proxy runs as, so every request served through this row — by any client of this proxy — spends that same account; OpenCodex neither pools nor multiplexes Claude sign-ins. Requires the CLI (`npm i -g @anthropic-ai/claude-code`) and a signed-in session (`claude` -> /login). v1 disables CLI tools (--tools \"\", --strict-mcp-config) so the client retains tool ownership; text, reasoning and native image input are supported. Subscription routing authorization flagged for maintainer review.",
   },
   {
-    // The official Antigravity CLI over the Agent Client Protocol (`agy acp`), the owner-approved
-    // alternative to credential replay (#8480, plan 080). Like claude-cli it is keyless rather than
-    // `local`: traffic still reaches Google, through the CLI's own sign-in. One account (the CLI's),
-    // no rotation, local requests only, Gemini only, interactive use only; config validation and
-    // the adapter's policy gate enforce those. The existing google-antigravity provider is unchanged.
-    id: "antigravity-acp",
-    label: "Antigravity CLI (ACP, local)",
-    adapter: "agy-acp",
-    // Identity only: the transport is stdio and this URL is never fetched.
-    baseUrl: "https://antigravity.google/docs/cli/acp",
+    // Devin as an ACP agent (stdio JSON-RPC, `devin acp`). Not a model endpoint:
+    // the turn runs Devin's own harness, tools and session memory. The client's
+    // system prompt, tool catalog and developer context are intentionally not
+    // forwarded. Binary resolution prefers the configured path, then the
+    // OPENCODEX_ACP_DEVIN_BIN env var, then PATH (`devin`).
+    id: "devin-acp",
+    label: "Devin (ACP agent)",
+    adapter: "acp",
+    // Identity URL only: ACP transport is stdio, nothing connects here.
+    baseUrl: "https://cli.devin.ai",
     authKind: "key",
     keyOptional: true,
-    dashboardUrl: "https://antigravity.google/docs/cli/acp",
-    defaultModel: AGY_ACP_DEFAULT_MODEL,
-    // Static seed; the ACP model options the CLI advertises at turn time decide what is accepted.
-    models: [...AGY_ACP_SEED_MODELS],
+    preserveCustomDestination: true,
+    dashboardUrl: "https://cli.devin.ai",
+    defaultModel: "adaptive",
+    // Static roster seeded from the agent's live session catalog (devin 3000.12.32).
+    // Devin exposes effort as a separate config option, so every model accepts
+    // the full effort ladder.
+    models: [
+      "adaptive",
+      "swe-2",
+      "swe-2-flash",
+      "claude-fable-5-2",
+      "claude-fable-5-1",
+      "claude-opus-5-5",
+      "claude-opus-5",
+      "claude-opus-4-8",
+      "claude-sonnet-5-5",
+      "claude-sonnet-5",
+      "claude-haiku-5-5",
+      "gpt-6-astra",
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "gemini-4-argon",
+      "gemini-3-8-flash",
+      "gemini-3-5-flash",
+      "kimi-k3-1-pro",
+      "glm-5-2",
+      "glm-5-2-1m",
+      "glm-5-3",
+    ],
+    reasoningEfforts: DEVIN_DEFAULT_EFFORTS,
     liveModels: false,
-    modelContextWindows: { "gemini-3.8-flash": 1_048_576, "gemini-4-argon": 1_048_576, "gemini-3.7-flash": 1_048_576 },
-    // ACP prompts carry text only; client function tools are not offered to the model.
-    inputModalities: ["text"],
-    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
-    note: "Drives the official Antigravity CLI (`agy acp`, 1.5.3 or newer) as a local child process over the Agent Client Protocol. The CLI owns its Google sign-in (`agy acp --login`); OpenCodex never reads or stores it, so no key or account belongs on this row. Google permits this only for interactive, user-directed use: OpenCodex refuses subagent, spawned-thread and Codex memory turns, combo members and decision calls, subagent-fallback routing and requests classified as remote from the observed connection. An undeclared loopback relay that forwards no recognized forwarding headers can appear local. On the public listener, declare a reverse proxy in dashboardTrustedProxy or keep this port out of the relay. OpenCodex serves Gemini models only. Use a Gemini API key or Vertex AI for programmatic or shared workloads. Each turn runs in an empty private workspace with `--sandbox`, every permission request is refused, and client tools are not offered; allow rules in your own agy settings still apply.",
+    modelInputModalities: {
+      adaptive: ["text", "image"],
+      "swe-2": ["text", "image"],
+      "swe-2-flash": ["text"],
+      "claude-fable-5-2": ["text", "image"],
+      "claude-fable-5-1": ["text", "image"],
+      "claude-opus-5-5": ["text", "image"],
+      "claude-opus-5": ["text", "image"],
+      "claude-opus-4-8": ["text", "image"],
+      "claude-sonnet-5-5": ["text", "image"],
+      "claude-sonnet-5": ["text", "image"],
+      "claude-haiku-5-5": ["text", "image"],
+      "gpt-6-astra": ["text", "image"],
+      "gpt-6-sol": ["text", "image"],
+      "gpt-6-luna": ["text", "image"],
+      "gemini-4-argon": ["text", "image"],
+      "gemini-3-8-flash": ["text", "image"],
+      "gemini-3-5-flash": ["text", "image"],
+      "kimi-k3-1-pro": ["text", "image"],
+      "glm-5-2": ["text"],
+      "glm-5-2-1m": ["text"],
+      "glm-5-3": ["text"],
+    },
+    note: "Devin as an AGENT over the Agent Client Protocol (`devin acp`, newline-delimited JSON-RPC on stdio) — not a model endpoint. The turn runs Devin's own harness: its system prompt, its tools, its workspace cwd, its session memory (resumed via session/load across requests). The client's system prompt, tool catalog and developer context are intentionally NOT forwarded; the agent answers the user's request under its own rules. Tool activity is progress narration, never client tool calls. Mode and permissions follow the agent's session mode (default accept-edits); session/request_permission is cancelled unless OPENCODEX_ACP_ALLOW_TOOLS=1 opts in. Requires the Devin CLI (`brew install --cask devin-cli` or the install script) and `devin auth login`; no credential is stored by opencodex. Subscription routing authorization flagged for maintainer review, same as claude-cli.",
+  },
+  {
+    // Google Antigravity as an ACP agent — same delegation contract as
+    // devin-acp, different binary and auth home. The ACP server is not on
+    // PATH: it is resolved from T3 Code's managed tools tree
+    // (~/.t3/tools/antigravity-acp/...) when present, and its Google sign-in
+    // state is reused from T3's provider home via GEMINI_HOME. Without T3 the
+    // binary uses its own ~/.gemini home and its own auth methods.
+    id: "antigravity-acp",
+    label: "Google Antigravity (ACP agent)",
+    adapter: "acp",
+    // Identity URL only: ACP transport is stdio, nothing connects here.
+    baseUrl: "https://antigravity.google",
+    authKind: "key",
+    keyOptional: true,
+    preserveCustomDestination: true,
+    dashboardUrl: "https://antigravity.google",
+    defaultModel: "gemini-3.8-flash",
+    // Static roster seeded from the agent's live session catalog (T3 Code's
+    // provider cache). Model selection goes through session/set_config_option
+    // when the session advertises the "model" config option.
+    models: [
+      "gemini-3.8-flash",
+      "claude-sonnet-4-6",
+      "claude-opus-4-6-thinking",
+      "gpt-oss-120b-medium",
+    ],
+    liveModels: false,
+    modelInputModalities: {
+      "gemini-3.8-flash": ["text", "image"],
+      "claude-sonnet-4-6": ["text", "image"],
+      "claude-opus-4-6-thinking": ["text", "image"],
+      "gpt-oss-120b-medium": ["text"],
+    },
+    note: "Google Antigravity as an AGENT over the Agent Client Protocol (`agy acp`, newline-delimited JSON-RPC on stdio) — not a model endpoint. Same delegation contract as devin-acp: the agent's own harness, tools and session memory answer the user's request; the client's system prompt, tool catalog and developer context are NOT forwarded, and agent tool activity is progress narration, never client tool calls. Binary resolution prefers the `agy` CLI on PATH (its built-in ACP server exposes the full Claude/GPT/Gemini catalog); T3 Code's managed `agy_acp_server.par` is not used because it exposes only Gemini models. The agent uses the CLI's own Google sign-in. Modes are the agent's own (default/auto_edit/yolo); session/request_permission is cancelled unless OPENCODEX_ACP_ALLOW_TOOLS=1 opts in. Subscription routing authorization flagged for maintainer review, same as claude-cli.",
+  },
+  {
+    // OpenCode as an ACP agent — same delegation contract as devin-acp and
+    // antigravity-acp. `opencode acp` serves the agent's own harness; the
+    // catalog is whatever providers/models the user's opencode config holds,
+    // so the roster below is a seed, not authoritative.
+    id: "opencode-acp",
+    label: "OpenCode (ACP agent)",
+    adapter: "acp",
+    // Identity URL only: ACP transport is stdio, nothing connects here.
+    baseUrl: "https://opencode.ai",
+    authKind: "key",
+    keyOptional: true,
+    preserveCustomDestination: true,
+    dashboardUrl: "https://opencode.ai",
+    defaultModel: "opencode/big-pickle",
+    models: [
+      "opencode/big-pickle",
+      "opencode/deepseek-v4.1-flash-free",
+      "opencode/glm-5.3-flash-free",
+      "opencode/mimo-v2.6-flash-free",
+    ],
+    // Live: `opencode acp` advertises its full configured catalog through the
+    // session's model configOptions; the gather discovers it per binary.
+    liveModels: true,
+    modelInputModalities: {
+      "opencode/big-pickle": ["text"],
+      "opencode/deepseek-v4.1-flash-free": ["text"],
+      "opencode/glm-5.3-flash-free": ["text"],
+      "opencode/mimo-v2.6-flash-free": ["text"],
+    },
+    note: "OpenCode as an AGENT over the Agent Client Protocol (`opencode acp`, newline-delimited JSON-RPC on stdio) — not a model endpoint. Same delegation contract as devin-acp: the agent's own harness, tools and session memory answer the user's request; the client's system prompt, tool catalog and developer context are NOT forwarded, and agent tool activity is progress narration, never client tool calls. Binary resolves on PATH (`opencode`); the agent uses the CLI's own provider auth (`opencode auth login`). session/request_permission is cancelled unless OPENCODEX_ACP_ALLOW_TOOLS=1 or the provider's Allow tools setting opts in. The model roster is a seed — opencode's real catalog comes from the user's own opencode config.",
   },
 ];

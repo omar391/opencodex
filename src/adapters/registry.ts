@@ -1,4 +1,5 @@
 import { createAgyAcpAdapter } from "./agy-acp/adapter";
+import { createAcpAdapter } from "./acp/adapter";
 import { createAnthropicAdapter } from "./anthropic";
 import { createWorkBuddyAdapter } from "./workbuddy";
 import { createDshAccountAdapter } from "./dsh-account";
@@ -55,7 +56,8 @@ export type AdapterWire =
   | "cursor"
   | "devin"
   | "zed"
-  | "agy-acp";
+  | "agy-acp"
+  | "acp";
 
 export type AdapterMutationContract =
   | "codex-owned"
@@ -169,6 +171,14 @@ export const ADAPTER_REGISTRY = {
     wire: "agy-acp",
     mutation: "codex-owned",
     create: (provider: OcxProviderConfig, _context: AdapterFactoryContext) => createAgyAcpAdapter(provider),
+  },
+  acp: {
+    // Agent-delegation wire: the agent runs its own harness and tools; the
+    // client harness is intentionally not forwarded. Which agent a provider id
+    // serves is resolved from the ACP profile registry, not the wire.
+    wire: "acp",
+    mutation: "codex-owned",
+    create: (provider: OcxProviderConfig, context: AdapterFactoryContext) => createAcpAdapter(provider, context),
   },
   "claude-cli": {
     // Claude Code speaks the same stream-json contract this repo already parses for CodeBuddy and

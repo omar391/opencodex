@@ -4626,4 +4626,13 @@ export const ko: Record<TKey, string> = {
   "comboSuggest.enablePaid": "유료 대상을 허용하려면 {command} 명령을 실행하세요. 다음에 콤보를 새로고침하면 제안에 반영됩니다.",
   "comboSuggest.draft.save": "콤보 저장",
   "comboSuggest.draft.saving": "저장 중…",
+  "modal.badge.acp": "ACP 에이전트",
+  "modal.tab.acp": "ACP 에이전트",
+  "pws.acpBinaryPath": "에이전트 바이너리 경로",
+  "pws.acpAllowTools": "Allow agent tools",
+  "pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
+  "pws.acpBinaryPlaceholder": "비워 두면 자동 감지",
+  "pws.acpBinaryHint": "이 에이전트의 PATH 및 T3 관리 도구 탐지를 재정의합니다. 비워 두면 자동 감지됩니다.",
+  "pws.acpBinaryResolved": "확인된 바이너리:",
+  "modal.acpAgentHint": "로컬 에이전트 CLI(예: devin acp)를 실행합니다. 에이전트가 자체 로그인과 결제를 관리하므로 API 키가 필요 없습니다. 사용자 지정 바이너리 경로는 나중에 설정에서 지정할 수 있습니다.",
 };

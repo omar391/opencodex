@@ -153,6 +153,7 @@ import type { ManagementContext } from "./context";
 import { readManagementJsonBody, rethrowManagementBodyTooLarge } from "./body";
 import { anthropicInstancePublicationError, mergeProviderEditorRow, preserveAnthropicInstanceMarker } from "./provider-instance-ownership";
 import { providerTlsProfileDiagnostic } from "../../lib/provider-tls-profile";
+import { resolveAcpBinaryInfo, resolveAcpProfile } from "../../adapters/acp/profiles";
 
 type ProviderPatchApplication =
   | { error: string }
@@ -354,6 +355,19 @@ function applyProviderPinFields(
 }
 
 /**
+ * Resolved ACP agent binary for the dashboard: the same scan the adapter runs
+ * (config > env > PATH > T3), reported with its source so the UI can show
+ * which seam won. `null` when no profile matches the provider name — custom
+ * ACP rows have no profile and fail at request time instead.
+ */
+function acpBinaryStatus(name: string, p: OcxProviderConfig) {
+  const profile = resolveAcpProfile(name);
+  if (!profile) return null;
+  const resolution = resolveAcpBinaryInfo(profile, undefined, { configuredPath: p.acpBinaryPath });
+  return resolution ? { path: resolution.path, source: resolution.source } : null;
+}
+
+/**
  * Apply the recognized PATCH field mask onto a provider copy. The caller runs this once
  * for validation and again inside the config mutation lock against the newest provider,
  * so a concurrent PATCH cannot be erased by a save of a stale snapshot. Only synchronous
@@ -433,6 +447,18 @@ function applyProviderPatchFields(
     const note = rawBody.note.trim();
     if (note) next.note = note;
     else delete next.note;
+    touched = true;
+  }
+  if (Object.hasOwn(rawBody, "acpBinaryPath")) {
+    if (typeof rawBody.acpBinaryPath !== "string") return { error: "acpBinaryPath must be a string" };
+    const acpBinaryPath = rawBody.acpBinaryPath.trim();
+    if (acpBinaryPath) next.acpBinaryPath = acpBinaryPath;
+    else delete next.acpBinaryPath;
+    touched = true;
+  }
+  if (Object.hasOwn(rawBody, "acpAllowTools")) {
+    if (typeof rawBody.acpAllowTools !== "boolean") return { error: "acpAllowTools must be a boolean" };
+    next.acpAllowTools = rawBody.acpAllowTools;
     touched = true;
   }
   if (Object.hasOwn(rawBody, "allowPrivateNetwork")) {
@@ -927,6 +953,9 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
       upstreamWebsocket: p.upstreamWebsocket, // Unset keeps upstream WebSocket enabled for canonical OpenAI.
       authMode: p.authMode,
       apiKeyTransport: p.apiKeyTransport,
+      // ACP agents: report the resolved agent binary so the dashboard can show
+      // the path the adapter will actually spawn (config > env > PATH > T3).
+      ...(p.adapter === "acp" ? { acpBinary: acpBinaryStatus(name, p) } : {}),
       disabled: p.disabled === true,
       codexAccountMode: providerCodexAccountMode(name, p),
       ...(name === "xai" ? { xaiResponsesOptInState: xaiResponsesOptInState(p) } : {}),
@@ -1711,6 +1740,24 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
     if (prov.adapter === "qoder") {
       // A late success re-syncs the catalog through the same convergence every mutation uses.
       return (await import("./qoder-provider-probe")).probeQoderProvider(name, prov, apiKey, convergeCodexCatalog);
+    }
+    if (prov.adapter === "acp") {
+      const { resolveAcpProfile } = await import("../../adapters/acp/profiles");
+      const { discoverAcpAgentModels } = await import("../../adapters/acp/live-models");
+      const profile = resolveAcpProfile(name);
+      if (!profile) return jsonResponse({ ok: false, latencyMs: 0, error: "unknown ACP profile" });
+      const started = Date.now();
+      const live = await discoverAcpAgentModels({ profile, provider: prov, timeoutMs: 15_000 });
+      const latencyMs = Date.now() - started;
+      if (!live.ok) {
+        return jsonResponse({ ok: false, latencyMs, error: live.error });
+      }
+      return jsonResponse({
+        ok: true,
+        latencyMs,
+        models: live.models.length,
+        message: `Connected. ${live.models.length} models.`,
+      });
     }
     const project = prov.project ?? snapshot?.projectId;
     if (antigravity && !project) {

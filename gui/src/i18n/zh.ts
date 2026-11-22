@@ -4625,4 +4625,13 @@ export const zh: Record<TKey, string> = {
   "comboSuggest.enablePaid": "运行 {command} 以允许付费目标。下次刷新组合时，建议将反映此更改。",
   "comboSuggest.draft.save": "保存组合",
   "comboSuggest.draft.saving": "正在保存…",
+  "modal.badge.acp": "ACP 代理",
+  "modal.tab.acp": "ACP 代理",
+  "pws.acpBinaryPath": "代理二进制路径",
+  "pws.acpAllowTools": "Allow agent tools",
+  "pws.acpAllowToolsHint": "Approve the agent's permission requests instead of auto-cancelling them (lets it read files and run commands).",
+  "pws.acpBinaryPlaceholder": "留空以自动检测",
+  "pws.acpBinaryHint": "覆盖此代理的 PATH 和 T3 托管工具检测。留空以自动检测。",
+  "pws.acpBinaryResolved": "解析出的二进制：",
+  "modal.acpAgentHint": "运行本地代理 CLI（例如 devin acp）。登录和计费由代理自行管理——无需 API 密钥。稍后可在“设置”中指定自定义二进制路径。",
 };
