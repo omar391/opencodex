@@ -58,6 +58,8 @@ export function findGuiDist(lookup: GuiDistLookup = {}): string | null {
   const candidates = [
     process.env.OPENCODEX_GUI_DIST,
     ...(standaloneDir === null ? [] : standaloneGuiDistCandidates(standaloneDir, lookup.platform)),
+    join(moduleDir, "dist"),
+    join(moduleDir, "gui", "dist"),
     join(moduleDir, "..", "..", "gui", "dist"),
     join(moduleDir, "..", "..", "..", "gui", "dist"),
   ].filter((candidate): candidate is string => Boolean(candidate));

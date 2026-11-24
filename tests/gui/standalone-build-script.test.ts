@@ -17,6 +17,8 @@ test("standalone build script exposes supported targets and packaging contract",
   ]) expect(targets).toContain(target);
   expect(script).toContain("--compile");
   expect(script).toContain("--bytecode");
+  expect(script).toContain("--minify");
+  expect(script).toContain("--asset=gui/dist");
   expect(script).toContain("--outfile");
   expect(script).toContain("gui/dist");
   expect(script).toContain("stageStandaloneKeyringAddon");

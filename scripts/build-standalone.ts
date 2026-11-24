@@ -67,7 +67,16 @@ function restoreGenPlaceholder(): void {
   writeFileSync(GEN_FILE, GEN_PLACEHOLDER);
 }
 
-const compileArgs = [process.execPath, "build", "--compile", "--bytecode", "--format", "esm"];
+const compileArgs = [
+  process.execPath,
+  "build",
+  "--compile",
+  "--bytecode",
+  "--format",
+  "esm",
+  "--minify",
+  "--asset=gui/dist",
+];
 // Cross-compiling to the host target produces a binary the kernel kills on
 // launch; only pass --target when it differs from the host.
 if (target !== hostTarget()) compileArgs.push("--target", target);
@@ -75,7 +84,7 @@ compileArgs.push(join(repoRoot, "src", "cli", "index.ts"), "--outfile", executab
 // process.exit() skips `finally`, so exit only after the placeholder is back.
 let compileExitCode: number;
 try {
-  compileExitCode = Bun.spawnSync(compileArgs, { stdout: "inherit", stderr: "inherit" }).exitCode ?? 1;
+  compileExitCode = Bun.spawnSync(compileArgs, { cwd: repoRoot, stdout: "inherit", stderr: "inherit" }).exitCode ?? 1;
 } finally {
   restoreGenPlaceholder();
 }
@@ -96,3 +105,21 @@ cpSync(guiDist, join(output, "gui", "dist"), { recursive: true });
 const digest = createHash("sha256").update(readFileSync(executable)).digest("hex");
 writeFileSync(join(output, "SHA256SUMS"), `${digest}  ${executable.split(/[\\/]/).pop()}\n`);
 console.log(`Built ${executable}`);
+
+const localBinDir = process.env.HOME ? join(process.env.HOME, ".local", "bin") : undefined;
+if (localBinDir && target === hostTarget() && !process.env.CI) {
+  try {
+    mkdirSync(localBinDir, { recursive: true });
+    const localExecutable = join(localBinDir, standaloneExecutableName(target));
+    cpSync(executable, localExecutable);
+    const localKeyringDir = join(localBinDir, "keyring");
+    const outputKeyringDir = join(output, "keyring");
+    if (existsSync(outputKeyringDir)) {
+      mkdirSync(localKeyringDir, { recursive: true });
+      cpSync(outputKeyringDir, localKeyringDir, { recursive: true });
+    }
+    console.log(`Installed standalone binary to ${localExecutable}`);
+  } catch (err) {
+    console.warn("Could not install to ~/.local/bin:", err);
+  }
+}

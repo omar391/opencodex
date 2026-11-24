@@ -335,3 +335,13 @@ test("a directory with its own index.html is served as a separate app with the s
     expect(await serveGuiFile(pathname, guiDist, session)!.text()).toContain("<title>main</title>");
   }
 });
+
+test("resolves embedded gui dist under moduleDir when standalone has no external gui dist directory", () => {
+  delete process.env.OPENCODEX_GUI_DIST;
+  const root = temporaryRoot("ocx-gui-embedded-");
+  const moduleDir = join(root, "embedded");
+  const embeddedDist = writeGuiDist(moduleDir, "dist");
+  const emptyStandaloneDir = join(root, "standalone-empty");
+  mkdirSync(emptyStandaloneDir, { recursive: true });
+  expect(findGuiDist({ standaloneDir: emptyStandaloneDir, moduleDir, platform: "darwin" })).toBe(embeddedDist);
+});
