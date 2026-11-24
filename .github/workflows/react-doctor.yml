@@ -39,6 +39,7 @@ concurrency:
 
 jobs:
   react-doctor:
+    if: github.repository == 'lidge-jun/opencodex'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

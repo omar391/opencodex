@@ -1,0 +1,53 @@
+name: Sync patch-main with Upstream Release
+
+on:
+  schedule:
+    # Run daily at 03:00 UTC
+    - cron: "0 3 * * *"
+  # Allows triggering manually anytime from the GitHub Actions UI
+  workflow_dispatch:
+
+concurrency:
+  group: sync-upstream-release
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  sync-upstream:
+    name: Sync Upstream Release
+    # Run only on the downstream fork
+    if: github.repository == 'omar391/opencodex'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout patch-main
+        uses: actions/checkout@v4
+        with:
+          ref: patch-main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git Identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch Upstream Release Branch
+        run: |
+          git remote add upstream https://github.com/lidge-jun/opencodex.git || true
+          git fetch upstream main
+
+      - name: Merge Upstream Release into patch-main
+        run: |
+          echo "Attempting clean merge from upstream release branch (main)..."
+          if git merge upstream/main -m "sync: periodic daily merge from upstream release branch (main)"; then
+            echo "Merge successful. Pushing to origin/patch-main..."
+            git push origin patch-main
+          else
+            echo "::error::Merge conflict detected between upstream release and patch-main. Aborting merge."
+            git merge --abort
+            exit 1
+          fi

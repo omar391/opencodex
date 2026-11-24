@@ -31,6 +31,7 @@ permissions: {}
 jobs:
   label:
     if: >-
+      github.repository == 'lidge-jun/opencodex' &&
       github.event_name == 'pull_request_target' &&
       contains(fromJSON('["opened", "edited", "synchronize", "labeled", "unlabeled"]'), github.event.action)
     permissions:
@@ -41,6 +42,7 @@ jobs:
 
   hygiene:
     if: >-
+      github.repository == 'lidge-jun/opencodex' &&
       github.event_name == 'pull_request_target' &&
       contains(fromJSON('["opened", "reopened", "synchronize", "edited", "labeled", "unlabeled"]'), github.event.action)
     permissions:
@@ -52,6 +54,7 @@ jobs:
   enforce:
     # No caller filter: resolve-pr decides which pull_request_target labels and
     # which status events reach the write-capable gate.
+    if: github.repository == 'lidge-jun/opencodex'
     permissions:
       contents: write
       pull-requests: write

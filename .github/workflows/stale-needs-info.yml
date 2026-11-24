@@ -22,6 +22,7 @@ concurrency:
 jobs:
   stale:
     name: Stale needs-info issues
+    if: github.repository == 'lidge-jun/opencodex'
     runs-on: ubuntu-latest
     steps:
       - name: Ensure stale label exists

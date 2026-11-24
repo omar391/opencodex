@@ -42,6 +42,7 @@ permissions:
 
 jobs:
   test:
+    if: github.repository == 'lidge-jun/opencodex'
     runs-on: ubuntu-latest
 
     steps:

@@ -97,6 +97,7 @@ jobs:
   # make candidate dependencies or postinstall hooks independently audited.
   select-windows-runner:
     name: select windows runner
+    if: github.repository == 'lidge-jun/opencodex'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
@@ -153,7 +154,7 @@ jobs:
   # in the `on:` block above.
   changes:
     name: changes
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.lane != 'windows-native-claim'
+    if: github.repository == 'lidge-jun/opencodex' && (github.event_name != 'workflow_dispatch' || github.event.inputs.lane != 'windows-native-claim')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # The workflow grants only `contents: read`, and specifying any permission
