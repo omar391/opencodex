@@ -16,6 +16,7 @@ test("standalone build script exposes supported targets and packaging contract",
     "bun-linux-arm64",
   ]) expect(targets).toContain(target);
   expect(script).toContain("--compile");
+  expect(script).toContain("--trim");
   expect(script).toContain("--bytecode");
   expect(script).toContain("--minify");
   expect(script).toContain("--asset=gui/dist");

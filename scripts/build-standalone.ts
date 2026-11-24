@@ -71,6 +71,7 @@ const compileArgs = [
   process.execPath,
   "build",
   "--compile",
+  "--trim",
   "--bytecode",
   "--format",
   "esm",
