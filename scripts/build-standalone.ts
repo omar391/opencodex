@@ -67,7 +67,7 @@ function restoreGenPlaceholder(): void {
   writeFileSync(GEN_FILE, GEN_PLACEHOLDER);
 }
 
-const compileArgs = [process.execPath, "build", "--compile"];
+const compileArgs = [process.execPath, "build", "--compile", "--bytecode", "--format", "esm"];
 // Cross-compiling to the host target produces a binary the kernel kills on
 // launch; only pass --target when it differs from the host.
 if (target !== hostTarget()) compileArgs.push("--target", target);
