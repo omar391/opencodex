@@ -4645,5 +4645,14 @@ export const es = {
   "cws.quotaPreset.claude-first": "Claude primero",
   "cws.quotaPreset.openai-first": "OpenAI primero",
   "cws.targets.order": "Orden de destinos",
+  "modal.badge.acp": "Agente ACP",
+  "modal.tab.acp": "Agentes ACP",
+  "pws.acpBinaryPath": "Ruta del binario del agente",
+  "pws.acpAllowTools": "Permitir herramientas del agente",
+  "pws.acpAllowToolsHint": "Aprueba las solicitudes de permiso del agente en lugar de cancelarlas automáticamente (le permite leer archivos y ejecutar comandos).",
+  "pws.acpBinaryPlaceholder": "Dejar vacío para detectar automáticamente",
+  "pws.acpBinaryHint": "Anula la detección por PATH y por herramientas gestionadas de T3 para este agente. Dejar vacío para detectar automáticamente.",
+  "pws.acpBinaryResolved": "Binario resuelto:",
+  "modal.acpAgentHint": "Ejecuta una CLI de agente local (por ejemplo devin acp). El agente gestiona su propio inicio de sesión y facturación; no se necesita clave de API. Puedes definir una ruta de binario personalizada más tarde en Ajustes.",
 
 } satisfies Record<TKey, string>;
